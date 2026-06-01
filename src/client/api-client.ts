@@ -2,29 +2,37 @@ import {
   Amount,
   CreateTokenOptions,
   FetchLike,
+  P3PCustomerAuthMode,
   P3PError,
-  PluralBuyerConfig,
+  PineLabsOnlineClientConfig,
   Token,
 } from "../types";
+import { P3PEnvironment } from "../config";
 import { requestWithRetry, safeJson } from "../utils/http";
 import { asRecord, parseToken } from "../utils/parsers";
-import { validateCreateTokenOptions } from "../utils/validation";
+import { resolveCustomerAuthMode, validateCreateTokenOptions } from "../utils/validation";
+import { AuthManager } from "./auth-manager";
 
 const CUSTOMER_TOKEN_PATH = "/api/v1/customer/mpp/token";
+const CUSTOMER_TOKEN_SANDBOX_BASE_URL = "https://api-staging.pluralonline.com";
+const CUSTOMER_TOKEN_PRODUCTION_BASE_URL = "https://api.pluralonline.com";
+const CENTRAL_TOKEN_PATH = "/mpp/v1/token";
 
 export class ApiClient {
   constructor(
-    private config: PluralBuyerConfig,
+    private config: PineLabsOnlineClientConfig,
     private baseUrl: string,
     private fetchImpl: FetchLike,
+    private auth?: AuthManager,
   ) {}
 
   /** Create a one-time payment token for an active authorization. */
   async createToken(options: CreateTokenOptions): Promise<Token> {
+    const customerAuthMode = resolveCustomerAuthMode(this.config);
     const tokenOptions = {
       ...options,
     };
-    validateCreateTokenOptions(tokenOptions);
+    validateCreateTokenOptions(tokenOptions, customerAuthMode);
     const customerReference = tokenOptions.customerReference ?? tokenOptions.customerId ?? "";
     const mobileNumber = tokenOptions.mobileNumber ?? "";
     const paymentAmount = tokenOptions.paymentAmount ?? {
@@ -32,18 +40,32 @@ export class ApiClient {
       currency: tokenOptions.usageLimits!.currency,
     };
     const body: Record<string, unknown> = {
-      type: tokenOptions.paymentMethod ?? this.config.selectedPaymentMethod,
-      customer: customerPayload(customerReference, mobileNumber),
+      payment_method: tokenOptions.paymentMethod ?? this.config.selectedPaymentMethod,
+      customer: customerPayload(customerReference, mobileNumber, customerAuthMode),
       challenge_id: tokenOptions.challengeId,
       payment_amount: amountPayload(paymentAmount),
     };
     const data = await this.request(
       "POST",
-      CUSTOMER_TOKEN_PATH,
+      customerAuthMode === P3PCustomerAuthMode.CustomerKey ? CUSTOMER_TOKEN_PATH : CENTRAL_TOKEN_PATH,
       body,
-      customerKeyHeader(tokenOptions.customerKey),
+      await this.authHeaders(customerAuthMode, tokenOptions.customerKey),
+      customerAuthMode === P3PCustomerAuthMode.CustomerKey
+        ? resolveCustomerTokenBaseUrl(this.baseUrl)
+        : this.baseUrl,
     );
     return parseToken(data);
+  }
+
+  private async authHeaders(customerAuthMode: P3PCustomerAuthMode, customerKey: string | undefined): Promise<Record<string, string>> {
+    if (customerAuthMode === P3PCustomerAuthMode.CustomerKey) {
+      return customerKeyHeader(customerKey);
+    }
+    const token = await this.auth?.getAccessToken();
+    if (!token) {
+      throw new P3PError("P3P_AUTHENTICATION_FAILED", "Client credentials auth manager is not configured", 500);
+    }
+    return { Authorization: `Bearer ${token}` };
   }
 
   /** P3P request wrapper that unwraps `{ data: ... }` envelopes. */
@@ -85,9 +107,19 @@ function buildUrl(baseUrl: string, path: string): string {
   return `${stripSlash(baseUrl)}${normalizedPath}`;
 }
 
-function customerPayload(_customerReference: string, mobileNumber: string): Record<string, string> {
+function resolveCustomerTokenBaseUrl(baseUrl: string): string {
+  return stripSlash(baseUrl) === P3PEnvironment.SANDBOX
+    ? CUSTOMER_TOKEN_SANDBOX_BASE_URL
+    : CUSTOMER_TOKEN_PRODUCTION_BASE_URL;
+}
+
+function customerPayload(customerReference: string, mobileNumber: string, customerAuthMode: P3PCustomerAuthMode): Record<string, string> {
+  if (customerAuthMode === P3PCustomerAuthMode.CustomerKey) {
+    return { mobile_number: mobileNumber };
+  }
   return {
-    mobile_number: mobileNumber,
+    ...(customerReference ? { merchant_customer_reference: customerReference } : {}),
+    ...(mobileNumber ? { mobile_number: mobileNumber } : {}),
   };
 }
 

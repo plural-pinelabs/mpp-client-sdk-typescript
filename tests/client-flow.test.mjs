@@ -3,10 +3,11 @@ import test from "node:test";
 
 import {
   P3PEnvironment,
+  P3PCustomerAuthMode,
   P3PError,
   PaymentGateway,
   PaymentMethod,
-  PluralBuyer,
+  PineLabsOnlineClient,
   buildCredential,
   decodeChallenge,
   decodeReceipt,
@@ -27,8 +28,7 @@ function response(status, body, headers = {}) {
 test("decodes challenges and encodes credentials with customer reference", () => {
   const challengePayload = {
     id: "ch_test",
-    realm: "Plural P3P",
-    paymentGateway: "PINE LABS ONLINE",
+    realm: "Pine Labs Online P3P",
     intent: "charge",
     request: {
       scheme: "exact",
@@ -41,13 +41,13 @@ test("decodes challenges and encodes credentials with customer reference", () =>
   };
 
   const challenge = decodeChallenge(`Payment ${encodeJson(challengePayload)}`);
-  const credential = buildCredential(challenge, "buyer-client", "P3P_TOK_test", PaymentMethod.Crypto, "cust-ref-123", "9876543210");
+  const credential = buildCredential(challenge, "client-client", "P3P_TOK_test", PaymentMethod.Crypto, "cust-ref-123", "9876543210");
   const header = encodeCredentialHeader(credential);
 
   assert.equal(header.startsWith("Payment "), true);
   const encoded = header.slice("Payment ".length);
   const raw = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
-  assert.equal(challenge.paymentGateway, PaymentGateway.PineLabsOnline);
+  assert.equal("paymentGateway" in raw.challenge, false);
   assert.equal(raw.payload.customer_reference, "cust-ref-123");
   assert.equal(raw.payload.mobile_number, "9876543210");
   assert.equal(raw.payload.payment_method, PaymentMethod.Crypto);
@@ -57,7 +57,7 @@ test("auto handles 402 challenge with the selected accepted payment method", asy
   const calls = [];
   const challengePayload = {
     id: "ch_123",
-    realm: "Plural P3P",
+    realm: "Pine Labs Online P3P",
     paymentGateway: "PINE LABS ONLINE",
     intent: "charge",
     request: {
@@ -80,7 +80,7 @@ test("auto handles 402 challenge with the selected accepted payment method", asy
       assert.equal("Authorization" in init.headers, false);
       const body = JSON.parse(init.body);
       assert.deepEqual(body, {
-        type: "CRYPTO",
+        payment_method: "CRYPTO",
         customer: {
           mobile_number: "9876543210",
         },
@@ -131,9 +131,9 @@ test("auto handles 402 challenge with the selected accepted payment method", asy
   };
 
   let receiptSeen;
-  const buyer = PluralBuyer.create({
-    paymentGateway: PaymentGateway.PineLabsOnline,
+  const client = PineLabsOnlineClient.create({
     selectedPaymentMethod: PaymentMethod.Crypto,
+    customerAuthMode: P3PCustomerAuthMode.CustomerKey,
     env: P3PEnvironment.SANDBOX,
     fetch: fetchImpl,
     onPaymentComplete: (receipt) => {
@@ -141,7 +141,7 @@ test("auto handles 402 challenge with the selected accepted payment method", asy
     },
   });
 
-  const finalResponse = await buyer.get(
+  const finalResponse = await client.get(
     "https://api.test/api/premium",
     {},
     {
@@ -159,11 +159,11 @@ test("auto handles 402 challenge with the selected accepted payment method", asy
   );
 });
 
-test("auto handles 402 using runtime customer context with a shared buyer", async () => {
+test("auto handles 402 using runtime customer context with a shared client", async () => {
   const calls = [];
   const challengePayload = {
     id: "ch_runtime",
-    realm: "Plural P3P",
+    realm: "Pine Labs Online P3P",
     paymentGateway: "PINE LABS ONLINE",
     intent: "charge",
     request: {
@@ -180,11 +180,11 @@ test("auto handles 402 using runtime customer context with a shared buyer", asyn
     const parsed = new URL(String(input));
     calls.push({ host: parsed.host, path: parsed.pathname, init });
 
-    if (parsed.host === "api.pluralpay.in" && parsed.pathname === "/api/v1/customer/mpp/token") {
+    if (parsed.host === "api.pluralonline.com" && parsed.pathname === "/api/v1/customer/mpp/token") {
       assert.equal(init.headers["X-Customer-Key"], "ck_customer_123");
       assert.equal("Authorization" in init.headers, false);
       assert.deepEqual(JSON.parse(init.body), {
-        type: "SBMD",
+        payment_method: "SBMD",
         customer: {
           mobile_number: "9876543210",
         },
@@ -214,22 +214,22 @@ test("auto handles 402 using runtime customer context with a shared buyer", asyn
       assert.equal(credential.source, "cust_123");
       assert.equal(credential.payload.customer_reference, "cust_123");
       assert.equal(credential.payload.mobile_number, "9876543210");
-      assert.equal(credential.payload.payment_method, PaymentMethod.UpiSbmd);
+      assert.equal(credential.payload.payment_method, PaymentMethod.UPI_RESERVE_PAY);
       return response(200, { ok: true });
     }
 
     return response(404, { error: "not found" });
   };
 
-  const buyer = PluralBuyer.create({
-    paymentGateway: PaymentGateway.PineLabsOnline,
-    selectedPaymentMethod: PaymentMethod.UpiSbmd,
+  const client = PineLabsOnlineClient.create({
+    selectedPaymentMethod: PaymentMethod.UPI_RESERVE_PAY,
+    customerAuthMode: P3PCustomerAuthMode.CustomerKey,
     autoHandlePayment: true,
     fetch: fetchImpl,
   });
 
-  const finalResponse = await buyer.get(
-    "https://seller.example.com/api/runtime",
+  const finalResponse = await client.get(
+    "https://server.example.com/api/runtime",
     { headers: { "X-Request-Id": "req_123" } },
     {
       customerKey: "ck_customer_123",
@@ -243,18 +243,266 @@ test("auto handles 402 using runtime customer context with a shared buyer", asyn
   assert.deepEqual(
     calls.map((call) => `${call.host}${call.path}`),
     [
-      "seller.example.com/api/runtime",
-      "api.pluralpay.in/api/v1/customer/mpp/token",
-      "seller.example.com/api/runtime",
+      "server.example.com/api/runtime",
+      "api.pluralonline.com/api/v1/customer/mpp/token",
+      "server.example.com/api/runtime",
     ],
   );
 });
 
-test("auto handling rejects when selected payment method is not accepted by seller", async () => {
+test("customer-key auth mode requires runtime customer key and mobile number only", async () => {
+  const calls = [];
+  const challengePayload = {
+    id: "ch_customer_key",
+    realm: "Pine Labs Online P3P",
+    intent: "charge",
+    request: {
+      scheme: "exact",
+      amount: "150.00",
+      currency: "INR",
+      resource: "/api/customer-key",
+      availablePaymentMethods: ["SBMD"],
+    },
+    expires: "2030-01-01T00:00:00Z",
+  };
+
+  const fetchImpl = async (input, init = {}) => {
+    const parsed = new URL(String(input));
+    calls.push({ host: parsed.host, path: parsed.pathname, init });
+
+    if (parsed.pathname === "/api/v1/customer/mpp/token") {
+      assert.equal(init.headers["X-Customer-Key"], "ck_customer_key");
+      assert.equal("Authorization" in init.headers, false);
+      assert.deepEqual(JSON.parse(init.body), {
+        payment_method: "SBMD",
+        customer: {
+          mobile_number: "9876543210",
+        },
+        challenge_id: "ch_customer_key",
+        payment_amount: { value: 15000, currency: "INR" },
+      });
+      return response(200, {
+        payment_token: "P3P_TOK_customer_key",
+        type: "SBMD",
+        payment_method_reference_id: "auth_customer_key",
+        expires_in: 300,
+      });
+    }
+
+    if (parsed.pathname === "/api/customer-key") {
+      const p3pCredential = init.headers?.["P3P-Credential"] ?? "";
+      if (!String(p3pCredential).startsWith("Payment ")) {
+        return response(
+          402,
+          { title: "Payment Required", status: 402, challengeId: "ch_customer_key" },
+          { "WWW-Authenticate": `Payment ${encodeJson(challengePayload)}` },
+        );
+      }
+      const credential = JSON.parse(Buffer.from(String(p3pCredential).slice("Payment ".length), "base64url").toString("utf8"));
+      assert.equal(credential.source, "9876543210");
+      assert.equal(credential.payload.customer_reference, undefined);
+      assert.equal(credential.payload.mobile_number, "9876543210");
+      return response(200, { ok: true });
+    }
+
+    return response(404, { error: "not found" });
+  };
+
+  const client = PineLabsOnlineClient.create({
+    selectedPaymentMethod: PaymentMethod.UPI_RESERVE_PAY,
+    customerAuthMode: P3PCustomerAuthMode.CustomerKey,
+    env: P3PEnvironment.SANDBOX,
+    fetch: fetchImpl,
+  });
+
+  const finalResponse = await client.get(
+    "https://server.example.com/api/customer-key",
+    {},
+    {
+      customerKey: "ck_customer_key",
+      mobileNumber: "9876543210",
+    },
+  );
+
+  assert.equal(finalResponse.status, 200);
+  assert.deepEqual(
+    calls.map((call) => `${call.host}${call.path}`),
+    [
+      "server.example.com/api/customer-key",
+      "api-staging.pluralonline.com/api/v1/customer/mpp/token",
+      "server.example.com/api/customer-key",
+    ],
+  );
+});
+
+test("client-credentials customer auth mode mints bearer token and calls central token endpoint", async () => {
+  const calls = [];
+  const challengePayload = {
+    id: "ch_client_credentials",
+    realm: "Pine Labs Online P3P",
+    intent: "charge",
+    request: {
+      scheme: "exact",
+      amount: "250.00",
+      currency: "INR",
+      resource: "/api/client-credentials",
+      availablePaymentMethods: ["SBMD"],
+    },
+    expires: "2030-01-01T00:00:00Z",
+  };
+
+  const fetchImpl = async (input, init = {}) => {
+    const parsed = new URL(String(input));
+    calls.push({ host: parsed.host, path: parsed.pathname, init });
+
+    if (parsed.pathname === "/api/auth/v1/token") {
+      assert.deepEqual(JSON.parse(init.body), {
+        grant_type: "client_credentials",
+        client_id: "client-client",
+        client_secret: "client-secret",
+      });
+      return response(200, {
+        data: {
+          access_token: "client-access-token",
+          expires_in: 300,
+        },
+      });
+    }
+
+    if (parsed.pathname === "/mpp/v1/token") {
+      assert.equal(init.headers.Authorization, "Bearer client-access-token");
+      assert.equal("X-Customer-Key" in init.headers, false);
+      assert.deepEqual(JSON.parse(init.body), {
+        payment_method: "SBMD",
+        customer: {
+          merchant_customer_reference: "cust-ref-123",
+        },
+        challenge_id: "ch_client_credentials",
+        payment_amount: { value: 25000, currency: "INR" },
+      });
+      return response(200, {
+        payment_token: "P3P_TOK_client_credentials",
+        type: "SBMD",
+        payment_method_reference_id: "auth_client_credentials",
+        expires_in: 300,
+      });
+    }
+
+    if (parsed.pathname === "/api/client-credentials") {
+      assert.equal(String(init.headers?.Authorization ?? ""), "");
+      const p3pCredential = init.headers?.["P3P-Credential"] ?? "";
+      if (!String(p3pCredential).startsWith("Payment ")) {
+        return response(
+          402,
+          { title: "Payment Required", status: 402, challengeId: "ch_client_credentials" },
+          { "WWW-Authenticate": `Payment ${encodeJson(challengePayload)}` },
+        );
+      }
+      const credential = JSON.parse(Buffer.from(String(p3pCredential).slice("Payment ".length), "base64url").toString("utf8"));
+      assert.equal(credential.source, "cust-ref-123");
+      assert.equal(credential.payload.customer_reference, "cust-ref-123");
+      assert.equal(credential.payload.mobile_number, undefined);
+      return response(200, { ok: true });
+    }
+
+    return response(404, { error: "not found" });
+  };
+
+  const client = PineLabsOnlineClient.create({
+    selectedPaymentMethod: PaymentMethod.UPI_RESERVE_PAY,
+    customerAuthMode: P3PCustomerAuthMode.ClientCredentials,
+    clientId: "client-client",
+    clientSecret: "client-secret",
+    env: P3PEnvironment.SANDBOX,
+    fetch: fetchImpl,
+  });
+
+  const finalResponse = await client.get(
+    "https://server.example.com/api/client-credentials",
+    {},
+    {
+      customerReference: "cust-ref-123",
+    },
+  );
+
+  assert.equal(finalResponse.status, 200);
+  assert.deepEqual(
+    calls.map((call) => `${call.host}${call.path}`),
+    [
+      "server.example.com/api/client-credentials",
+      "pluraluat.v2.pinepg.in/api/auth/v1/token",
+      "pluraluat.v2.pinepg.in/mpp/v1/token",
+      "server.example.com/api/client-credentials",
+    ],
+  );
+});
+
+test("client defaults to client-credentials customer auth mode", async () => {
+  const calls = [];
+  const fetchImpl = async (input, init = {}) => {
+    const parsed = new URL(String(input));
+    calls.push({ host: parsed.host, path: parsed.pathname, init });
+
+    if (parsed.pathname === "/api/auth/v1/token") {
+      return response(200, {
+        data: {
+          access_token: "default-client-access-token",
+          expires_in: 300,
+        },
+      });
+    }
+
+    if (parsed.pathname === "/mpp/v1/token") {
+      assert.equal(init.headers.Authorization, "Bearer default-client-access-token");
+      assert.equal("X-Customer-Key" in init.headers, false);
+      assert.deepEqual(JSON.parse(init.body), {
+        payment_method: "SBMD",
+        customer: {
+          merchant_customer_reference: "cust-ref-default",
+        },
+        challenge_id: "ch_default",
+        payment_amount: { value: 100, currency: "INR" },
+      });
+      return response(200, {
+        payment_token: "P3P_TOK_default",
+        type: "SBMD",
+        payment_method_reference_id: "auth_default",
+        expires_in: 300,
+      });
+    }
+
+    return response(404, { error: "not found" });
+  };
+
+  const client = PineLabsOnlineClient.create({
+    selectedPaymentMethod: PaymentMethod.UPI_RESERVE_PAY,
+    clientId: "client-client",
+    clientSecret: "client-secret",
+    env: P3PEnvironment.SANDBOX,
+    fetch: fetchImpl,
+  });
+
+  const token = await client.methods.createToken({
+    customerReference: "cust-ref-default",
+    challengeId: "ch_default",
+    paymentAmount: { value: 100, currency: "INR" },
+  });
+
+  assert.equal(token.token, "P3P_TOK_default");
+  assert.deepEqual(
+    calls.map((call) => `${call.host}${call.path}`),
+    [
+      "pluraluat.v2.pinepg.in/api/auth/v1/token",
+      "pluraluat.v2.pinepg.in/mpp/v1/token",
+    ],
+  );
+});
+
+test("auto handling rejects when selected payment method is not accepted by server", async () => {
   const calls = [];
   const challengePayload = {
     id: "ch_unsupported",
-    realm: "Plural P3P",
+    realm: "Pine Labs Online P3P",
     paymentGateway: "PINE LABS ONLINE",
     intent: "charge",
     request: {
@@ -282,15 +530,15 @@ test("auto handling rejects when selected payment method is not accepted by sell
     return response(500, { error: "unexpected call" });
   };
 
-  const buyer = PluralBuyer.create({
-    paymentGateway: PaymentGateway.PineLabsOnline,
+  const client = PineLabsOnlineClient.create({
     selectedPaymentMethod: PaymentMethod.Crypto,
+    customerAuthMode: P3PCustomerAuthMode.CustomerKey,
     env: P3PEnvironment.SANDBOX,
     fetch: fetchImpl,
   });
 
   await assert.rejects(
-    () => buyer.get("https://api.test/api/premium"),
+    () => client.get("https://api.test/api/premium"),
     /not accepted/i,
   );
   assert.deepEqual(calls.map((call) => call.path), ["/api/premium"]);
@@ -299,7 +547,7 @@ test("auto handling rejects when selected payment method is not accepted by sell
 test("auto handling requires customer runtime context when config defaults are absent", async () => {
   const challengePayload = {
     id: "ch_missing_context",
-    realm: "Plural P3P",
+    realm: "Pine Labs Online P3P",
     paymentGateway: "PINE LABS ONLINE",
     intent: "charge",
     request: {
@@ -324,20 +572,20 @@ test("auto handling requires customer runtime context when config defaults are a
     return response(500, { error: "unexpected call" });
   };
 
-  const buyer = PluralBuyer.create({
-    paymentGateway: PaymentGateway.PineLabsOnline,
-    selectedPaymentMethod: PaymentMethod.UpiSbmd,
+  const client = PineLabsOnlineClient.create({
+    selectedPaymentMethod: PaymentMethod.UPI_RESERVE_PAY,
+    customerAuthMode: P3PCustomerAuthMode.CustomerKey,
     env: P3PEnvironment.SANDBOX,
     fetch: fetchImpl,
   });
 
   await assert.rejects(
-    () => buyer.get("https://api.test/api/premium"),
-    /BuyerRuntimeContext: customerKey, customerReference, and mobileNumber are required/i,
+    () => client.get("https://api.test/api/premium"),
+    /ClientRuntimeContext: customerKey and mobileNumber are required/i,
   );
 });
 
-test("buyer token surface does not create mandates or expose revoke", async () => {
+test("client token surface does not create mandates or expose revoke", async () => {
   const calls = [];
   const fetchImpl = async (input, init = {}) => {
     const parsed = new URL(String(input));
@@ -346,7 +594,7 @@ test("buyer token surface does not create mandates or expose revoke", async () =
       assert.equal(init.headers["X-Customer-Key"], "ck_test_customer");
       assert.equal("Authorization" in init.headers, false);
       assert.deepEqual(JSON.parse(init.body), {
-        type: "SBMD",
+        payment_method: "SBMD",
         customer: {
           mobile_number: "9876543210",
         },
@@ -365,17 +613,17 @@ test("buyer token surface does not create mandates or expose revoke", async () =
     return response(404, { error: "not found" });
   };
 
-  const buyer = PluralBuyer.create({
-    paymentGateway: PaymentGateway.PineLabsOnline,
-    selectedPaymentMethod: PaymentMethod.UpiSbmd,
+  const client = PineLabsOnlineClient.create({
+    selectedPaymentMethod: PaymentMethod.UPI_RESERVE_PAY,
+    customerAuthMode: P3PCustomerAuthMode.CustomerKey,
     env: P3PEnvironment.SANDBOX,
     fetch: fetchImpl,
   });
 
-  assert.equal("revokeToken" in buyer.methods, false);
-  assert.equal("createMandate" in buyer.methods, false);
-  assert.equal("getMandate" in buyer.methods, false);
-  const token = await buyer.methods.createToken({
+  assert.equal("revokeToken" in client.methods, false);
+  assert.equal("createMandate" in client.methods, false);
+  assert.equal("getMandate" in client.methods, false);
+  const token = await client.methods.createToken({
     customerKey: "ck_test_customer",
     customerReference: "cust-ref-123",
     mobileNumber: "9876543210",
@@ -388,13 +636,14 @@ test("buyer token surface does not create mandates or expose revoke", async () =
   assert.deepEqual(calls.map((call) => call.path), ["/api/v1/customer/mpp/token"]);
 });
 
-test("buyer env selects sandbox URL for token calls without bearer auth", async () => {
+test("client env selects sandbox URL for token calls without bearer auth", async () => {
   const calls = [];
   const fetchImpl = async (input, init = {}) => {
     const parsed = new URL(String(input));
     calls.push({ host: parsed.host, path: parsed.pathname, init });
     if (parsed.pathname === "/api/v1/customer/mpp/token") {
       assert.equal("Authorization" in init.headers, false);
+      assert.equal(init.headers["X-Customer-Key"], "ck_test_customer");
       return response(200, {
         data: {
           payment_token: "P3P_TOK_123",
@@ -407,14 +656,15 @@ test("buyer env selects sandbox URL for token calls without bearer auth", async 
     return response(404, { error: "not found" });
   };
 
-  const buyer = PluralBuyer.create({
-    paymentGateway: PaymentGateway.PineLabsOnline,
-    selectedPaymentMethod: PaymentMethod.UpiSbmd,
+  const client = PineLabsOnlineClient.create({
+    selectedPaymentMethod: PaymentMethod.UPI_RESERVE_PAY,
+    customerAuthMode: P3PCustomerAuthMode.CustomerKey,
     env: P3PEnvironment.SANDBOX,
     fetch: fetchImpl,
   });
 
-  await buyer.methods.createToken({
+  await client.methods.createToken({
+    customerKey: "ck_test_customer",
     customerReference: "cust-ref-123",
     mobileNumber: "9876543210",
     challengeId: "ch_direct",
@@ -423,17 +673,18 @@ test("buyer env selects sandbox URL for token calls without bearer auth", async 
 
   assert.deepEqual(
     calls.map((call) => `${call.host}${call.path}`),
-    ["pluraluat.v2.pinepg.in/api/v1/customer/mpp/token"],
+    ["api-staging.pluralonline.com/api/v1/customer/mpp/token"],
   );
 });
 
-test("buyer env defaults to production when omitted by JavaScript callers", async () => {
+test("client env defaults to production when omitted by JavaScript callers", async () => {
   const calls = [];
   const fetchImpl = async (input, init = {}) => {
     const parsed = new URL(String(input));
     calls.push({ host: parsed.host, path: parsed.pathname, init });
     if (parsed.pathname === "/api/v1/customer/mpp/token") {
       assert.equal("Authorization" in init.headers, false);
+      assert.equal(init.headers["X-Customer-Key"], "ck_test_customer");
       return response(200, {
         data: {
           payment_token: "P3P_TOK_123",
@@ -446,13 +697,14 @@ test("buyer env defaults to production when omitted by JavaScript callers", asyn
     return response(404, { error: "not found" });
   };
 
-  const buyer = PluralBuyer.create({
-    paymentGateway: PaymentGateway.PineLabsOnline,
-    selectedPaymentMethod: PaymentMethod.UpiSbmd,
+  const client = PineLabsOnlineClient.create({
+    selectedPaymentMethod: PaymentMethod.UPI_RESERVE_PAY,
+    customerAuthMode: P3PCustomerAuthMode.CustomerKey,
     fetch: fetchImpl,
   });
 
-  await buyer.methods.createToken({
+  await client.methods.createToken({
+    customerKey: "ck_test_customer",
     customerReference: "cust-ref-123",
     mobileNumber: "9876543210",
     challengeId: "ch_direct",
@@ -461,20 +713,20 @@ test("buyer env defaults to production when omitted by JavaScript callers", asyn
 
   assert.deepEqual(
     calls.map((call) => `${call.host}${call.path}`),
-    ["api.pluralpay.in/api/v1/customer/mpp/token"],
+    ["api.pluralonline.com/api/v1/customer/mpp/token"],
   );
 });
 
-test("buyer token creation uses fixed customer token endpoint with customer key", async () => {
+test("client token creation uses staging customer token endpoint with customer key in sandbox", async () => {
   const calls = [];
   const fetchImpl = async (input, init = {}) => {
     const parsed = new URL(String(input));
     calls.push({ host: parsed.host, path: parsed.pathname, init });
-    if (parsed.host === "pluraluat.v2.pinepg.in" && parsed.pathname === "/api/v1/customer/mpp/token") {
+    if (parsed.host === "api-staging.pluralonline.com" && parsed.pathname === "/api/v1/customer/mpp/token") {
       assert.equal("Authorization" in init.headers, false);
       assert.equal(init.headers["X-Customer-Key"], "ck_test_customer");
       assert.deepEqual(JSON.parse(init.body), {
-        type: "SBMD",
+        payment_method: "SBMD",
         customer: {
           mobile_number: "9876543210",
         },
@@ -500,14 +752,14 @@ test("buyer token creation uses fixed customer token endpoint with customer key"
     return response(404, { error: "not found" });
   };
 
-  const buyer = PluralBuyer.create({
-    paymentGateway: PaymentGateway.PineLabsOnline,
-    selectedPaymentMethod: PaymentMethod.UpiSbmd,
+  const client = PineLabsOnlineClient.create({
+    selectedPaymentMethod: PaymentMethod.UPI_RESERVE_PAY,
+    customerAuthMode: P3PCustomerAuthMode.CustomerKey,
     env: P3PEnvironment.SANDBOX,
     fetch: fetchImpl,
   });
 
-  const token = await buyer.methods.createToken({
+  const token = await client.methods.createToken({
     customerKey: "ck_test_customer",
     customerReference: "cust-ref-123",
     mobileNumber: "9876543210",
@@ -522,11 +774,11 @@ test("buyer token creation uses fixed customer token endpoint with customer key"
   assert.equal(token.customer_reference, "abcd0008");
   assert.equal(token.mobile_number, "9876543210");
   assert.deepEqual(token.payment_amount, { value: 300, currency: "INR" });
-  assert.equal(token.payment_method, PaymentMethod.UpiSbmd);
+  assert.equal(token.payment_method, PaymentMethod.UPI_RESERVE_PAY);
   assert.equal(token.expires_in, 300);
   assert.deepEqual(
     calls.map((call) => `${call.host}${call.path}`),
-    ["pluraluat.v2.pinepg.in/api/v1/customer/mpp/token"],
+    ["api-staging.pluralonline.com/api/v1/customer/mpp/token"],
   );
 });
 
@@ -563,14 +815,14 @@ test("customer key is sent only from per-call token options", async () => {
     return response(404, { error: "not found" });
   };
 
-  const buyer = PluralBuyer.create({
-    paymentGateway: PaymentGateway.PineLabsOnline,
-    selectedPaymentMethod: PaymentMethod.UpiSbmd,
+  const client = PineLabsOnlineClient.create({
+    selectedPaymentMethod: PaymentMethod.UPI_RESERVE_PAY,
+    customerAuthMode: P3PCustomerAuthMode.CustomerKey,
     env: P3PEnvironment.SANDBOX,
     fetch: fetchImpl,
   });
 
-  await buyer.methods.createToken({
+  await client.methods.createToken({
     customerKey: "ck_test_customer",
     customerReference: "cust-ref-123",
     mobileNumber: "9876543210",
@@ -586,7 +838,7 @@ test("decodeReceipt parses Payment-Receipt headers", () => {
     `Payment ${encodeJson({
       status: "success",
       paymentGateway: PaymentGateway.PineLabsOnline,
-      paymentMethod: PaymentMethod.UpiSbmd,
+      paymentMethod: PaymentMethod.UPI_RESERVE_PAY,
       timestamp: "2030-01-01T00:00:00Z",
       reference: "cap_1",
       challengeId: "ch_1",
@@ -597,7 +849,7 @@ test("decodeReceipt parses Payment-Receipt headers", () => {
   assert.equal(receipt.status, "success");
   assert.equal("method" in receipt, false);
   assert.equal(receipt.paymentGateway, PaymentGateway.PineLabsOnline);
-  assert.equal(receipt.paymentMethod, PaymentMethod.UpiSbmd);
+  assert.equal(receipt.paymentMethod, PaymentMethod.UPI_RESERVE_PAY);
   assert.equal(receipt.settlement.currency, "INR");
 });
 

@@ -6,15 +6,21 @@ export type FetchLike = (input: string | URL | Request, init?: RequestInit) => P
 export const PAYMENT_CREDENTIAL_HEADER = "P3P-Credential";
 export const PAYMENT_HEADER_PREFIX = "Payment ";
 
-/** Payment gateway used by seller challenges and buyer credentials. */
+/** Payment gateway enum retained for receipt/config context. */
 export enum PaymentGateway {
   PineLabsOnline = "PINE LABS ONLINE",
 }
 
 /** Payment methods supported by the current P3P service payload contract. */
 export enum PaymentMethod {
-  UpiSbmd = "SBMD",
+  UPI_RESERVE_PAY = "SBMD",
   Crypto = "CRYPTO",
+}
+
+/** Customer authorization mode used when the client SDK creates P3P payment tokens. */
+export enum P3PCustomerAuthMode {
+  CustomerKey = "CUSTOMER_KEY",
+  ClientCredentials = "CLIENT_CREDENTIALS",
 }
 
 /** Logger interface used by SDK internals for retry and payment diagnostics. */
@@ -35,7 +41,7 @@ export interface Amount {
   currency: string;
 }
 
-/** Payment request embedded in a seller 402 challenge. */
+/** Payment request embedded in a server 402 challenge. */
 export interface ChallengeRequest {
   scheme: string;
   amount: string;
@@ -44,17 +50,16 @@ export interface ChallengeRequest {
   availablePaymentMethods: PaymentMethod[];
 }
 
-/** Decoded seller challenge from `WWW-Authenticate: Payment <payload>`. */
+/** Decoded server challenge from `WWW-Authenticate: Payment <payload>`. */
 export interface Challenge {
   id: string;
   realm: string;
-  paymentGateway: PaymentGateway;
   intent: string;
   request: ChallengeRequest;
   expires: string;
 }
 
-/** Buyer payment credential payload sent back to the seller. */
+/** Client payment credential payload sent back to the server. */
 export interface CredentialPayload {
   type: "token";
   token: string;
@@ -70,13 +75,13 @@ export interface Credential {
   payload: CredentialPayload;
 }
 
-/** Settlement amount encoded in a seller `Payment-Receipt` header. */
+/** Settlement amount encoded in a server `Payment-Receipt` header. */
 export interface Settlement {
   amount: string;
   currency: string;
 }
 
-/** Decoded `Payment-Receipt` data returned after seller capture succeeds. */
+/** Decoded `Payment-Receipt` data returned after server capture succeeds. */
 export interface Receipt {
   status: "success" | "failure";
   paymentGateway?: PaymentGateway;
@@ -87,7 +92,7 @@ export interface Receipt {
   settlement: Settlement;
 }
 
-/** Optional defaults used when the buyer SDK creates payment tokens automatically. */
+/** Optional defaults used when the client SDK creates payment tokens automatically. */
 export interface TokenDefaults {
   /** Optional legacy maximum charge count retained for constructor compatibility. */
   maxCharges?: number;
@@ -95,17 +100,21 @@ export interface TokenDefaults {
   ttlSeconds?: number;
 }
 
-/** Configuration required to construct a buyer SDK instance. */
-export interface PluralBuyerConfig {
-  /** Payment gateway this buyer is willing to use for seller challenges. */
-  paymentGateway: PaymentGateway;
-  /** Selected payment method for this buyer instance. */
+/** Configuration required to construct a client SDK instance. */
+export interface PineLabsOnlineClientConfig {
+  /** Selected payment method for this client instance. */
   selectedPaymentMethod: PaymentMethod;
-  /** Plural P3P environment used for P3P service calls. Defaults to production when omitted at runtime. */
+  /** Pine Labs Online P3P environment used for P3P service calls. Defaults to production when omitted at runtime. */
   env?: P3PEnvironmentValue;
-  /** Set false to return seller 402 responses without automatic token creation and retry. */
+  /** Customer authorization mode for token creation. Defaults to `CLIENT_CREDENTIALS`. */
+  customerAuthMode?: P3PCustomerAuthMode;
+  /** Client id used in `CLIENT_CREDENTIALS` customer auth mode. */
+  clientId?: string;
+  /** Client secret used in `CLIENT_CREDENTIALS` customer auth mode. */
+  clientSecret?: string;
+  /** Set false to return server 402 responses without automatic token creation and retry. */
   autoHandlePayment?: boolean;
-  /** Callback invoked after a seller Payment challenge is decoded. */
+  /** Callback invoked after a server Payment challenge is decoded. */
   onChallenge?: (challenge: Challenge) => void | Promise<void>;
   /** Callback invoked with a decoded `Payment-Receipt` after a successful paid retry. */
   onPaymentComplete?: (receipt: Receipt) => void | Promise<void>;
@@ -123,11 +132,11 @@ export interface PluralBuyerConfig {
   fetch?: FetchLike;
 }
 
-/** Per-request customer context for shared buyer instances serving many customers. */
-export interface BuyerRuntimeContext {
+/** Per-request customer context for shared client instances serving many customers. */
+export interface ClientRuntimeContext {
   /** Customer key sent as `X-Customer-Key` on token calls. */
   customerKey?: string | null;
-  /** Customer reference sent to the customer token endpoint and embedded in Payment credentials. */
+  /** Customer reference sent as `customer.merchant_customer_reference` and embedded in Payment credentials. */
   customerReference?: string | null;
   /** Mobile number sent as `customer.mobile_number` to the customer token endpoint. */
   mobileNumber?: string | null;
@@ -141,17 +150,17 @@ export interface CreateTokenUsageLimits {
   maxCharges?: number;
 }
 
-/** Input for `buyer.methods.createToken`, mapped to `POST /api/v1/customer/mpp/token`. */
+/** Input for `client.methods.createToken`, mapped to `POST /api/v1/customer/mpp/token`. */
 export interface CreateTokenOptions {
   /** Legacy usage-limit object retained for compatibility; not sent to current `/token`. */
   usageLimits?: CreateTokenUsageLimits;
-  /** Customer reference used to find the active authorization for token creation. */
+  /** Customer reference sent as `customer.merchant_customer_reference` where supported. */
   customerReference?: string;
   /** Legacy alias used when `customerReference` is absent. */
   customerId?: string;
-  /** Buyer mobile number sent as `customer.mobile_number` to the customer token endpoint. */
+  /** Client mobile number sent as `customer.mobile_number` to the customer token endpoint. */
   mobileNumber?: string;
-  /** Seller challenge id sent as `challenge_id` to the customer token endpoint. */
+  /** Server challenge id sent as `challenge_id` to the customer token endpoint. */
   challengeId?: string;
   /** Payment amount sent as `payment_amount` to the customer token endpoint, in minor units. */
   paymentAmount?: Amount;
@@ -233,7 +242,7 @@ export class P3PNetworkError extends Error {
   }
 }
 
-/** Error type raised when a seller challenge is missing, expired, or malformed. */
+/** Error type raised when a server challenge is missing, expired, or malformed. */
 export class P3PChallengeError extends Error {
   constructor(message: string, public challengeId: string) {
     super(message);

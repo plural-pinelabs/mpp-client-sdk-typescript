@@ -1,19 +1,19 @@
 {
-  "name": "@pine-labs-online/p3p-buyer-sdk",
-  "version": "0.1.0",
-  "description": "Plural P3P Buyer SDK - Plural P3P client for AI agents (TypeScript)",
+  "name": "@pine-labs-online/p3p-client-sdk",
+  "version": "0.1.5",
+  "description": "Pine Labs Online P3P Client SDK - Pine Labs Online P3P client for AI agents (TypeScript)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mishrasanjeev/agentic-org.git"
+    "url": "https://github.com/plural-pinelabs/mpp-server-sdk-typescript"
   },
   "keywords": [
     "p3p",
     "x402",
     "payment",
-    "buyer",
+    "client",
     "pinelabs",
     "upi",
     "sbmd",

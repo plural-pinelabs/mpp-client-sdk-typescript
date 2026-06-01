@@ -11,7 +11,7 @@ import {
 import { decodeJson, encodeJson, isBase64Url } from "../utils/base64url";
 import { asRecord } from "../utils/parsers";
 
-/** Decode and validate a seller `WWW-Authenticate: Payment ...` challenge. */
+/** Decode and validate a server `WWW-Authenticate: Payment ...` challenge. */
 export function decodeChallenge(wwwAuthenticateHeader: string): Challenge {
   const encoded = extractBase64Payload(wwwAuthenticateHeader);
   if (!encoded) {
@@ -23,7 +23,7 @@ export function decodeChallenge(wwwAuthenticateHeader: string): Challenge {
   return challenge;
 }
 
-/** Build the buyer credential object that authorizes one seller debit attempt. */
+/** Build the client credential object that authorizes one server debit attempt. */
 export function buildCredential(
   challenge: Challenge,
   agentId: string,
@@ -59,13 +59,13 @@ export function encodeCredentialHeader(credential: Credential): string {
   }
   payload.payment_method = credential.payload.payment_method;
   return `${PAYMENT_HEADER_PREFIX}${encodeJson({
-    challenge: credential.challenge,
+    challenge: challengePayload(credential.challenge),
     source: credential.source,
     payload,
   })}`;
 }
 
-/** Decode a seller `Payment-Receipt` header into a typed receipt. */
+/** Decode a server `Payment-Receipt` header into a typed receipt. */
 export function decodeReceipt(paymentReceiptHeader: string): Receipt {
   const encoded = extractBase64Payload(paymentReceiptHeader);
   if (!encoded) {
@@ -98,9 +98,6 @@ export function decodeReceipt(paymentReceiptHeader: string): Receipt {
 export function validateChallenge(challenge: Challenge): void {
   if (!challenge.id) {
     throw new P3PChallengeError("Challenge missing id", "");
-  }
-  if (challenge.paymentGateway !== PaymentGateway.PineLabsOnline) {
-    throw new P3PChallengeError(`Unsupported payment gateway: ${challenge.paymentGateway}. Expected "${PaymentGateway.PineLabsOnline}"`, challenge.id);
   }
   if (!challenge.request?.amount || !challenge.request.currency) {
     throw new P3PChallengeError("Challenge missing payment request details", challenge.id);
@@ -137,7 +134,6 @@ function dictToChallenge(raw: unknown): Challenge {
   return {
     id: String(record.id ?? ""),
     realm: String(record.realm ?? ""),
-    paymentGateway: parsePaymentGateway(record.paymentGateway ?? record.payment_gateway),
     intent: String(record.intent ?? ""),
     request: {
       scheme: String(req.scheme ?? ""),
@@ -153,19 +149,19 @@ function dictToChallenge(raw: unknown): Challenge {
 export function selectPaymentMethod(challenge: Challenge, selectedPaymentMethod: PaymentMethod): PaymentMethod {
   if (!challenge.request.availablePaymentMethods.includes(selectedPaymentMethod)) {
     throw new P3PChallengeError(
-      `Selected payment method ${selectedPaymentMethod} is not accepted by this seller challenge`,
+      `Selected payment method ${selectedPaymentMethod} is not accepted by this server challenge`,
       challenge.id,
     );
   }
   return selectedPaymentMethod;
 }
 
-function parsePaymentGateway(value: unknown): PaymentGateway {
-  return value === PaymentGateway.PineLabsOnline ? PaymentGateway.PineLabsOnline : String(value ?? "") as PaymentGateway;
+function parsePaymentGateway(value: unknown): PaymentGateway | undefined {
+  return value === undefined || value === null ? undefined : String(value) as PaymentGateway;
 }
 
 function parsePaymentMethod(value: unknown): PaymentMethod {
-  if (value === PaymentMethod.UpiSbmd || value === PaymentMethod.Crypto) {
+  if (value === PaymentMethod.UPI_RESERVE_PAY || value === PaymentMethod.Crypto) {
     return value;
   }
   return String(value ?? "") as PaymentMethod;
@@ -176,4 +172,14 @@ function parsePaymentMethods(value: unknown): PaymentMethod[] {
     return [];
   }
   return value.map(parsePaymentMethod);
+}
+
+function challengePayload(challenge: Challenge): Challenge {
+  return {
+    id: challenge.id,
+    realm: challenge.realm,
+    intent: challenge.intent,
+    request: challenge.request,
+    expires: challenge.expires,
+  };
 }

@@ -1,14 +1,14 @@
-# Plural P3P Buyer SDK
+# Pine Labs Online P3P Client SDK
 
-TypeScript SDK for Plural P3P buyer clients. It handles HTTP
-`402 Payment Required` seller challenges, creates one-time P3P payment tokens,
+TypeScript SDK for Pine Labs Online P3P client clients. It handles HTTP
+`402 Payment Required` server challenges, creates one-time P3P payment tokens,
 retries protected requests with a `Payment` credential, and parses
 `Payment-Receipt` headers.
 
 ## Install
 
 ```bash
-npm install @pine-labs-online/p3p-buyer-sdk
+npm install @pine-labs-online/p3p-client-sdk
 ```
 
 Requires Node.js `>=18` or another runtime with `fetch`, `AbortSignal.timeout`,
@@ -19,22 +19,21 @@ and standard Web APIs.
 ```ts
 import {
   P3PEnvironment,
-  PaymentGateway,
   PaymentMethod,
-  PluralBuyer,
-} from "@pine-labs-online/p3p-buyer-sdk";
+  PineLabsOnlineClient,
+} from "@pine-labs-online/p3p-client-sdk";
 
-const buyer = PluralBuyer.create({
-  paymentGateway: PaymentGateway.PineLabsOnline,
-  selectedPaymentMethod: PaymentMethod.UpiSbmd,
+const client = PineLabsOnlineClient.create({
+  selectedPaymentMethod: PaymentMethod.UPI_RESERVE_PAY,
+  clientId: process.env.PINELABS_CLIENT_ID!,
+  clientSecret: process.env.PINELABS_CLIENT_SECRET!,
   env: P3PEnvironment.SANDBOX,
 });
 
-const response = await buyer.get(
-  "https://seller.example.com/api/premium",
+const response = await client.get(
+  "https://server.example.com/api/premium",
   { headers: { "X-Request-Id": "req_123" } },
   {
-    customerKey: "ck_customer_123",
     customerReference: "customer-ref-123",
     mobileNumber: "9876543210",
   },
@@ -44,86 +43,79 @@ console.log(await response.json());
 
 ## Payment Selection
 
-The buyer config selects one payment method for this buyer instance:
+The client config selects one payment method for this client instance:
 
 ```ts
-const buyer = PluralBuyer.create({
-  paymentGateway: PaymentGateway.PineLabsOnline,
+const client = PineLabsOnlineClient.create({
   selectedPaymentMethod: PaymentMethod.Crypto,
   env: P3PEnvironment.SANDBOX,
 });
 ```
 
-`env` selects the Plural P3P service URL. If plain JavaScript callers
+`env` selects the Pine Labs Online P3P service URL. If plain JavaScript callers
 omit it, the SDK defaults to `P3PEnvironment.PRODUCTION`.
 
-Customer identity is supplied only per request so a single buyer instance can
+Customer identity is supplied only per request so a single client instance can
 serve many customers. `customerKey`, `customerReference`, and `mobileNumber`
-are not part of `PluralBuyerConfig`.
+are not part of `PineLabsOnlineClientConfig`.
+
+By default, the SDK uses `P3PCustomerAuthMode.ClientCredentials`. Configure
+`clientId` and `clientSecret` once, then pass either `customerReference` or
+`mobileNumber` at request time.
+
+For customer API-token flows, explicitly set
+`customerAuthMode: P3PCustomerAuthMode.CustomerKey` and pass `customerKey` plus
+`mobileNumber` in the runtime context.
 
 Runtime context is passed as a separate argument after `RequestInit`; it is not
-merged into fetch options and is never sent to the seller as part of the
+merged into fetch options and is never sent to the server as part of the
 original request:
 
 ```ts
-await buyer.get(url, requestInit, {
-  customerKey: "ck_customer_123",
+await client.get(url, requestInit, {
   customerReference: "customer-ref-123",
   mobileNumber: "9876543210",
 });
 ```
 
-When a seller returns a 402 challenge, the SDK validates
-`paymentGateway === "PINE LABS ONLINE"` and checks that the selected method is
-included in `request.availablePaymentMethods`. The selected method is sent as
-the P3P service payload `type` when creating a token and is embedded as
+When a server returns a 402 challenge, the SDK validates amount, expiry, and that
+the selected method is included in `request.availablePaymentMethods`. The
+selected method is sent as the P3P service payload `type` when creating a token and is embedded as
 `payload.payment_method` in the returned Payment credential.
 
 Currently supported values:
 
-- `PaymentMethod.UpiSbmd` -> `"SBMD"`
+- `PaymentMethod.UPI_RESERVE_PAY` -> `"SBMD"`
 - `PaymentMethod.Crypto` -> `"CRYPTO"`
 
 ## Direct P3P API
 
 ```ts
-await buyer.methods.createToken({
-  customerKey: "ck_customer_123",
+await client.methods.createToken({
   customerReference: "customer-ref-123",
   mobileNumber: "9876543210",
   challengeId: "ch_...",
   paymentAmount: { value: 50000, currency: "INR" },
-  paymentMethod: PaymentMethod.UpiSbmd,
+  paymentMethod: PaymentMethod.UPI_RESERVE_PAY,
 });
 ```
 
 If `paymentMethod` is omitted, the SDK uses `config.selectedPaymentMethod`.
-Mandate/pre-authorization creation belongs on the seller/server side; the buyer
-SDK only creates the one-time token for a seller challenge.
+Mandate/pre-authorization creation belongs on the server/server side; the client
+SDK only creates the one-time token for a server challenge.
 
-Token creation always uses the configured environment base URL and the fixed
-customer token endpoint `POST /api/v1/customer/mpp/token`. The buyer SDK does
-not send a bearer `Authorization` header to this endpoint.
-
-### Current sandbox token endpoint caveat
-
-The sandbox P3P environment host, `https://pluraluat.v2.pinepg.in`, currently
-does not expose `POST /api/v1/customer/mpp/token`; calling that URL returns
-`HTTP 404`.
-
-For the customer-token flow used by the playground login/API-token journey, the
-working staging endpoint is currently served by checkout-BFF:
+Token creation uses the configured auth mode. In the default client-credentials
+mode, the SDK obtains a bearer token from `POST /api/auth/v1/token` and calls
+`POST /mpp/v1/token` on the configured P3P environment host. In customer-key
+mode, the SDK calls the customer token host for the selected environment with
+`X-Customer-Key` and no bearer `Authorization` header:
 
 ```text
-POST https://api-staging.pluralonline.com/api/v3/checkout-bff/customer/mpp/token
+Sandbox:    POST https://api-staging.pluralonline.com/api/v1/customer/mpp/token
+Production: POST https://api.pluralonline.com/api/v1/customer/mpp/token
 X-Customer-Key: <customer API token>
 Content-Type: application/json
 ```
-
-Until the SDK is updated to route token creation through that checkout-BFF
-origin/path, an automatic `402` flow can fail after the seller challenge with
-`HTTP 404` during token creation. Mandate creation and seller debit continue to
-use the seller SDK / P3P service flow.
 
 The current P3P request bodies use nested customer objects:
 
@@ -132,16 +124,16 @@ The current P3P request bodies use nested customer objects:
 
 ## 402 Flow
 
-1. Your app calls `buyer.get(...)`, `buyer.post(...)`, or `buyer.request(...)`.
-2. The seller returns `HTTP 402` with
+1. Your app calls `client.get(...)`, `client.post(...)`, or `client.request(...)`.
+2. The server returns `HTTP 402` with
    `WWW-Authenticate: Payment <challenge>`.
-3. The SDK decodes and validates the challenge gateway and available methods.
+3. The SDK decodes and validates the challenge amount, expiry, and available methods.
 4. The SDK creates a payment token with runtime customer context.
 5. The SDK retries the original request with
    `P3P-Credential: Payment <credential>`.
-6. The seller captures the payment and may return `Payment-Receipt`.
+6. The server captures the payment and may return `Payment-Receipt`.
 
-Decoded receipts include `paymentGateway` and `paymentMethod` when the seller
+Decoded receipts include `paymentGateway` and `paymentMethod` when the server
 adds that context. The older receipt `method` field is not emitted.
 
 ## Utilities
@@ -151,7 +143,7 @@ import {
   decodeChallenge,
   decodeReceipt,
   validateChallenge,
-} from "@pine-labs-online/p3p-buyer-sdk";
+} from "@pine-labs-online/p3p-client-sdk";
 
 const challenge = decodeChallenge(wwwAuthenticateHeader);
 validateChallenge(challenge);

@@ -1,5 +1,6 @@
-import { BuyerRuntimeContext, Challenge, Credential, FetchLike, PAYMENT_CREDENTIAL_HEADER, PluralBuyerConfig } from "../types";
+import { ClientRuntimeContext, Challenge, Credential, FetchLike, P3PCustomerAuthMode, PAYMENT_CREDENTIAL_HEADER, PineLabsOnlineClientConfig } from "../types";
 import { normalizeHeaders } from "../utils/http";
+import { resolveCustomerAuthMode } from "../utils/validation";
 import {
   buildCredential,
   decodeChallenge,
@@ -12,13 +13,13 @@ import { ApiClient } from "./api-client";
 
 export class FetchInterceptor {
   constructor(
-    private config: PluralBuyerConfig,
+    private config: PineLabsOnlineClientConfig,
     private api: ApiClient,
     private fetchImpl: FetchLike,
   ) {}
 
-  /** Send an HTTP request and automatically handle seller P3P 402 challenges. */
-  async request(method: string, url: string, init: RequestInit = {}, context?: BuyerRuntimeContext): Promise<Response> {
+  /** Send an HTTP request and automatically handle server P3P 402 challenges. */
+  async request(method: string, url: string, init: RequestInit = {}, context?: ClientRuntimeContext): Promise<Response> {
     const response = await this.fetchImpl(url, { ...init, method, headers: normalizeHeaders(init.headers) });
     if (response.status !== 402 || this.config.autoHandlePayment === false) {
       return response;
@@ -31,9 +32,9 @@ export class FetchInterceptor {
   }
 
   /** Create a one-time P3P token and wrap it in a Payment credential. */
-  async createCredentialForChallenge(challenge: Challenge, context?: BuyerRuntimeContext): Promise<Credential> {
+  async createCredentialForChallenge(challenge: Challenge, context?: ClientRuntimeContext): Promise<Credential> {
     const paymentMethod = selectPaymentMethod(challenge, this.config.selectedPaymentMethod);
-    const customerContext = resolveCustomerContext(context);
+    const customerContext = resolveCustomerContext(context, resolveCustomerAuthMode(this.config));
     const token = await this.api.createToken({
       customerKey: customerContext.customerKey,
       customerReference: customerContext.customerReference,
@@ -44,7 +45,7 @@ export class FetchInterceptor {
     });
     return buildCredential(
       challenge,
-      customerContext.customerReference,
+      customerContext.credentialSource,
       token.token,
       paymentMethod,
       customerContext.customerReference,
@@ -52,7 +53,7 @@ export class FetchInterceptor {
     );
   }
 
-  private async handle402(method: string, url: string, init: RequestInit, wwwAuth: string, context?: BuyerRuntimeContext): Promise<Response> {
+  private async handle402(method: string, url: string, init: RequestInit, wwwAuth: string, context?: ClientRuntimeContext): Promise<Response> {
     const challenge = decodeChallenge(wwwAuth);
     await this.config.onChallenge?.(challenge);
 
@@ -74,20 +75,36 @@ export class FetchInterceptor {
   }
 }
 
-interface ResolvedBuyerRuntimeContext {
-  customerKey: string;
-  customerReference: string;
-  mobileNumber: string;
+interface ResolvedClientRuntimeContext {
+  customerKey?: string;
+  customerReference?: string;
+  mobileNumber?: string;
+  credentialSource: string;
 }
 
-function resolveCustomerContext(context?: BuyerRuntimeContext): ResolvedBuyerRuntimeContext {
+function resolveCustomerContext(context: ClientRuntimeContext | undefined, customerAuthMode: P3PCustomerAuthMode): ResolvedClientRuntimeContext {
   const customerKey = requiredText(context?.customerKey);
   const customerReference = requiredText(context?.customerReference);
   const mobileNumber = requiredText(context?.mobileNumber);
-  if (!customerKey || !customerReference || !mobileNumber) {
-    throw new Error("BuyerRuntimeContext: customerKey, customerReference, and mobileNumber are required for automatic payment handling");
+  if (customerAuthMode === P3PCustomerAuthMode.CustomerKey) {
+    if (!customerKey || !mobileNumber) {
+      throw new Error("ClientRuntimeContext: customerKey and mobileNumber are required when customerAuthMode is CUSTOMER_KEY");
+    }
+    return {
+      customerKey,
+      customerReference,
+      mobileNumber,
+      credentialSource: customerReference ?? mobileNumber,
+    };
   }
-  return { customerKey, customerReference, mobileNumber };
+  if (!customerReference && !mobileNumber) {
+    throw new Error("ClientRuntimeContext: customerReference or mobileNumber is required when customerAuthMode is CLIENT_CREDENTIALS");
+  }
+  return {
+    customerReference,
+    mobileNumber,
+    credentialSource: customerReference ?? mobileNumber!,
+  };
 }
 
 function requiredText(value: string | null | undefined): string | undefined {
