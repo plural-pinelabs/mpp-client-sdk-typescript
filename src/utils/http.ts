@@ -1,6 +1,6 @@
 import { FetchLike, P3PNetworkError, PineLabsOnlineClientConfig } from "../types";
 
-const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_TIMEOUT_MS = 45_000;
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_INITIAL_RETRY_DELAY_MS = 500;
 

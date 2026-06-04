@@ -17,4 +17,4 @@ Object.defineProperty(exports, "__esModule", { value: true });
 __exportStar(require("./api-client"), exports);
 __exportStar(require("./credential-builder"), exports);
 __exportStar(require("./fetch-interceptor"), exports);
-__exportStar(require("./plural-buyer"), exports);
+__exportStar(require("./pine-labs-online-client"), exports);

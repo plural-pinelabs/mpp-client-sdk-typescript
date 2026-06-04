@@ -23,7 +23,7 @@ export class ApiClient {
     private config: PineLabsOnlineClientConfig,
     private baseUrl: string,
     private fetchImpl: FetchLike,
-    private auth?: AuthManager,
+    private auth: AuthManager,
   ) {}
 
   /** Create a one-time payment token for an active authorization. */
@@ -58,14 +58,14 @@ export class ApiClient {
   }
 
   private async authHeaders(customerAuthMode: P3PCustomerAuthMode, customerKey: string | undefined): Promise<Record<string, string>> {
-    if (customerAuthMode === P3PCustomerAuthMode.CustomerKey) {
-      return customerKeyHeader(customerKey);
-    }
-    const token = await this.auth?.getAccessToken();
+    const token = await this.auth.getAccessToken();
     if (!token) {
-      throw new P3PError("P3P_AUTHENTICATION_FAILED", "Client credentials auth manager is not configured", 500);
+      throw new P3PError("P3P_AUTHENTICATION_FAILED", "Auth manager is not configured", 500);
     }
-    return { Authorization: `Bearer ${token}` };
+    return {
+      Authorization: `Bearer ${token}`,
+      ...(customerAuthMode === P3PCustomerAuthMode.CustomerKey ? customerKeyHeader(customerKey) : {}),
+    };
   }
 
   /** P3P request wrapper that unwraps `{ data: ... }` envelopes. */

@@ -39,7 +39,7 @@ export function parseToken(data: unknown): Token {
       charges_made: Number(usage.charges_made ?? 0),
     },
     expires_in: Number(record.expires_in ?? 0),
-    metadata: asRecord(record.metadata) ?? { type: record.type ?? "SBMD" },
+    metadata: asRecord(record.metadata) ?? { type: record.type ?? "RESERVE_PAY" },
     created_at: String(record.created_at ?? ""),
     raw: record,
   };

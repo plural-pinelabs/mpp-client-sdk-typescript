@@ -13,7 +13,7 @@ export enum PaymentGateway {
 
 /** Payment methods supported by the current P3P service payload contract. */
 export enum PaymentMethod {
-  UPI_RESERVE_PAY = "SBMD",
+  UPI_RESERVE_PAY = "RESERVE_PAY",
   Crypto = "CRYPTO",
 }
 
@@ -108,10 +108,10 @@ export interface PineLabsOnlineClientConfig {
   env?: P3PEnvironmentValue;
   /** Customer authorization mode for token creation. Defaults to `CLIENT_CREDENTIALS`. */
   customerAuthMode?: P3PCustomerAuthMode;
-  /** Client id used in `CLIENT_CREDENTIALS` customer auth mode. */
-  clientId?: string;
-  /** Client secret used in `CLIENT_CREDENTIALS` customer auth mode. */
-  clientSecret?: string;
+  /** Client id used for customer auth token exchange in all modes. */
+  clientId: string;
+  /** Client secret used for customer auth token exchange in all modes. */
+  clientSecret: string;
   /** Set false to return server 402 responses without automatic token creation and retry. */
   autoHandlePayment?: boolean;
   /** Callback invoked after a server Payment challenge is decoded. */
@@ -120,7 +120,7 @@ export interface PineLabsOnlineClientConfig {
   onPaymentComplete?: (receipt: Receipt) => void | Promise<void>;
   /** Legacy defaults retained for compatibility; current `/token` does not require them. */
   tokenDefaults?: TokenDefaults;
-  /** Per-request timeout in milliseconds. Defaults to 30000. */
+  /** Per-request timeout in milliseconds. Defaults to 60000 in sandbox and 45000 in production. */
   requestTimeoutMs?: number;
   /** Number of retries for network errors, HTTP 429, and 5xx responses. Defaults to 3. */
   maxRetries?: number;

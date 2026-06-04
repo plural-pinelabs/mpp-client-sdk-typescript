@@ -5,11 +5,8 @@ export function validateConfig(config: PineLabsOnlineClientConfig): void {
   if (config.env !== undefined && !isP3PEnvironment(config.env)) {
     throw new Error("PineLabsOnlineClientConfig: env must be P3PEnvironment.SANDBOX or P3PEnvironment.PRODUCTION");
   }
-  const customerAuthMode = resolveCustomerAuthMode(config);
-  if (customerAuthMode === P3PCustomerAuthMode.ClientCredentials) {
-    if (!requiredText(config.clientId) || !requiredText(config.clientSecret)) {
-      throw new Error("PineLabsOnlineClientConfig: clientId and clientSecret are required when customerAuthMode is CLIENT_CREDENTIALS");
-    }
+  if (!requiredText(config.clientId) || !requiredText(config.clientSecret)) {
+    throw new Error("PineLabsOnlineClientConfig: clientId and clientSecret are required");
   }
   if (!isSupportedPaymentMethod(config.selectedPaymentMethod)) {
     throw new Error("PineLabsOnlineClientConfig: selectedPaymentMethod must be a supported payment method");

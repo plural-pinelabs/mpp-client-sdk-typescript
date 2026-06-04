@@ -1,4 +1,4 @@
-import { resolveP3PBaseUrl } from "../config";
+import { resolveP3PBaseUrl, withP3PEnvironmentDefaults } from "../config";
 import {
   Challenge,
   Credential,
@@ -79,17 +79,16 @@ export class PineLabsOnlineClient {
   /** Create a client SDK instance from `PineLabsOnlineClientConfig`. */
   static create(config: PineLabsOnlineClientConfig): PineLabsOnlineClientInstance {
     validateConfig(config);
+    const resolvedConfig = withP3PEnvironmentDefaults(config);
     const fetchImpl = config.fetch ?? globalThis.fetch?.bind(globalThis);
     if (!fetchImpl) {
       throw new Error("A fetch implementation is required.");
     }
 
-    const envBaseUrl = resolveP3PBaseUrl(config.env);
-    const auth = resolveCustomerAuthMode(config) === P3PCustomerAuthMode.ClientCredentials
-      ? new AuthManager(config, envBaseUrl, fetchImpl)
-      : undefined;
-    const api = new ApiClient(config, envBaseUrl, fetchImpl, auth);
-    const interceptor = new FetchInterceptor(config, api, fetchImpl);
+    const envBaseUrl = resolveP3PBaseUrl(resolvedConfig.env);
+    const auth = new AuthManager(resolvedConfig, envBaseUrl, fetchImpl);
+    const api = new ApiClient(resolvedConfig, envBaseUrl, fetchImpl, auth);
+    const interceptor = new FetchInterceptor(resolvedConfig, api, fetchImpl);
     return new PineLabsOnlineClientInstance(interceptor, fetchImpl, new ClientMethods(api));
   }
 }

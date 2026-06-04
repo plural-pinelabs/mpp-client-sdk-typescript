@@ -15,7 +15,7 @@ function parseToken(data) {
     const paymentMethod = parsePaymentMethod(record.type);
     return {
         token_id: paymentToken,
-        object: String(record.object ?? "plural_payment_token"),
+        object: String(record.object ?? "p3p_payment_token"),
         customer_reference: String(customer?.merchant_customer_reference ?? record.merchant_customer_reference ?? record.customer_reference ?? record.customer_id ?? ""),
         customer_id: String(customer?.customer_id ?? record.customer_id ?? record.customer_reference ?? ""),
         mobile_number: stringOrUndefined(customer?.mobile_number ?? record.mobile_number),
@@ -43,7 +43,7 @@ function parseToken(data) {
             charges_made: Number(usage.charges_made ?? 0),
         },
         expires_in: Number(record.expires_in ?? 0),
-        metadata: asRecord(record.metadata) ?? { type: record.type ?? "SBMD" },
+        metadata: asRecord(record.metadata) ?? { type: record.type ?? "RESERVE_PAY" },
         created_at: String(record.created_at ?? ""),
         raw: record,
     };

@@ -1,9 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.P3PChallengeError = exports.P3PNetworkError = exports.P3PError = exports.PaymentMethod = exports.PaymentGateway = exports.PAYMENT_HEADER_PREFIX = exports.PAYMENT_CREDENTIAL_HEADER = void 0;
+exports.P3PChallengeError = exports.P3PNetworkError = exports.P3PError = exports.P3PCustomerAuthMode = exports.PaymentMethod = exports.PaymentGateway = exports.PAYMENT_HEADER_PREFIX = exports.PAYMENT_CREDENTIAL_HEADER = void 0;
 exports.PAYMENT_CREDENTIAL_HEADER = "P3P-Credential";
 exports.PAYMENT_HEADER_PREFIX = "Payment ";
-/** Payment gateway used by seller challenges and buyer credentials. */
+/** Payment gateway enum retained for receipt/config context. */
 var PaymentGateway;
 (function (PaymentGateway) {
     PaymentGateway["PineLabsOnline"] = "PINE LABS ONLINE";
@@ -11,9 +11,15 @@ var PaymentGateway;
 /** Payment methods supported by the current P3P service payload contract. */
 var PaymentMethod;
 (function (PaymentMethod) {
-    PaymentMethod["UpiSbmd"] = "SBMD";
+    PaymentMethod["RESERVE_PAY"] = "RESERVE_PAY";
     PaymentMethod["Crypto"] = "CRYPTO";
 })(PaymentMethod || (exports.PaymentMethod = PaymentMethod = {}));
+/** Customer authorization mode used when the client SDK creates P3P payment tokens. */
+var P3PCustomerAuthMode;
+(function (P3PCustomerAuthMode) {
+    P3PCustomerAuthMode["CustomerKey"] = "CUSTOMER_KEY";
+    P3PCustomerAuthMode["ClientCredentials"] = "CLIENT_CREDENTIALS";
+})(P3PCustomerAuthMode || (exports.P3PCustomerAuthMode = P3PCustomerAuthMode = {}));
 /** Error type raised for non-2xx P3P service responses. */
 class P3PError extends Error {
     code;
@@ -54,7 +60,7 @@ class P3PNetworkError extends Error {
     }
 }
 exports.P3PNetworkError = P3PNetworkError;
-/** Error type raised when a seller challenge is missing, expired, or malformed. */
+/** Error type raised when a server challenge is missing, expired, or malformed. */
 class P3PChallengeError extends Error {
     challengeId;
     constructor(message, challengeId) {

@@ -35,7 +35,7 @@ test("decodes challenges and encodes credentials with customer reference", () =>
       amount: "100.00",
       currency: "INR",
       resource: "/premium",
-      availablePaymentMethods: ["SBMD", "CRYPTO"],
+      availablePaymentMethods: ["RESERVE_PAY", "CRYPTO"],
     },
     expires: "2030-01-01T00:00:00Z",
   };
@@ -65,7 +65,7 @@ test("auto handles 402 challenge with the selected accepted payment method", asy
       amount: "150.00",
       currency: "INR",
       resource: "/api/premium",
-      availablePaymentMethods: ["SBMD", "CRYPTO"],
+      availablePaymentMethods: ["RESERVE_PAY", "CRYPTO"],
     },
     expires: "2030-01-01T00:00:00Z",
   };
@@ -75,9 +75,23 @@ test("auto handles 402 challenge with the selected accepted payment method", asy
     const parsed = new URL(url);
     calls.push({ url, path: parsed.pathname, init });
 
+    if (parsed.pathname === "/api/auth/v1/token") {
+      assert.deepEqual(JSON.parse(init.body), {
+        grant_type: "client_credentials",
+        client_id: "client-client",
+        client_secret: "client-secret",
+      });
+      return response(200, {
+        data: {
+          access_token: "customer-key-access-token",
+          expires_in: 300,
+        },
+      });
+    }
+
     if (parsed.pathname === "/api/v1/customer/mpp/token") {
       assert.equal(init.headers["X-Customer-Key"], "ck_test_customer");
-      assert.equal("Authorization" in init.headers, false);
+      assert.equal(init.headers.Authorization, "Bearer customer-key-access-token");
       const body = JSON.parse(init.body);
       assert.deepEqual(body, {
         payment_method: "CRYPTO",
@@ -134,6 +148,8 @@ test("auto handles 402 challenge with the selected accepted payment method", asy
   const client = PineLabsOnlineClient.create({
     selectedPaymentMethod: PaymentMethod.Crypto,
     customerAuthMode: P3PCustomerAuthMode.CustomerKey,
+    clientId: "client-client",
+    clientSecret: "client-secret",
     env: P3PEnvironment.SANDBOX,
     fetch: fetchImpl,
     onPaymentComplete: (receipt) => {
@@ -155,7 +171,7 @@ test("auto handles 402 challenge with the selected accepted payment method", asy
   assert.equal(receiptSeen.settlement.amount, "150.00");
   assert.deepEqual(
     calls.map((call) => call.path),
-    ["/api/premium", "/api/v1/customer/mpp/token", "/api/premium"],
+    ["/api/premium", "/api/auth/v1/token", "/api/v1/customer/mpp/token", "/api/premium"],
   );
 });
 
@@ -171,7 +187,7 @@ test("auto handles 402 using runtime customer context with a shared client", asy
       amount: "150.00",
       currency: "INR",
       resource: "/api/runtime",
-      availablePaymentMethods: ["SBMD", "CRYPTO"],
+      availablePaymentMethods: ["RESERVE_PAY", "CRYPTO"],
     },
     expires: "2030-01-01T00:00:00Z",
   };
@@ -180,11 +196,25 @@ test("auto handles 402 using runtime customer context with a shared client", asy
     const parsed = new URL(String(input));
     calls.push({ host: parsed.host, path: parsed.pathname, init });
 
+    if (parsed.host === "api.pluralpay.in" && parsed.pathname === "/api/auth/v1/token") {
+      assert.deepEqual(JSON.parse(init.body), {
+        grant_type: "client_credentials",
+        client_id: "client-client",
+        client_secret: "client-secret",
+      });
+      return response(200, {
+        data: {
+          access_token: "runtime-access-token",
+          expires_in: 300,
+        },
+      });
+    }
+
     if (parsed.host === "api.pluralonline.com" && parsed.pathname === "/api/v1/customer/mpp/token") {
       assert.equal(init.headers["X-Customer-Key"], "ck_customer_123");
-      assert.equal("Authorization" in init.headers, false);
+      assert.equal(init.headers.Authorization, "Bearer runtime-access-token");
       assert.deepEqual(JSON.parse(init.body), {
-        payment_method: "SBMD",
+        payment_method: "RESERVE_PAY",
         customer: {
           mobile_number: "9876543210",
         },
@@ -193,7 +223,7 @@ test("auto handles 402 using runtime customer context with a shared client", asy
       });
       return response(200, {
         payment_token: "P3P_TOK_runtime",
-        type: "SBMD",
+        type: "RESERVE_PAY",
         payment_method_reference_id: "auth_runtime",
         expires_in: 300,
       });
@@ -224,6 +254,8 @@ test("auto handles 402 using runtime customer context with a shared client", asy
   const client = PineLabsOnlineClient.create({
     selectedPaymentMethod: PaymentMethod.UPI_RESERVE_PAY,
     customerAuthMode: P3PCustomerAuthMode.CustomerKey,
+    clientId: "client-client",
+    clientSecret: "client-secret",
     autoHandlePayment: true,
     fetch: fetchImpl,
   });
@@ -244,13 +276,14 @@ test("auto handles 402 using runtime customer context with a shared client", asy
     calls.map((call) => `${call.host}${call.path}`),
     [
       "server.example.com/api/runtime",
+      "api.pluralpay.in/api/auth/v1/token",
       "api.pluralonline.com/api/v1/customer/mpp/token",
       "server.example.com/api/runtime",
     ],
   );
 });
 
-test("customer-key auth mode requires runtime customer key and mobile number only", async () => {
+test("customer-key auth mode fetches bearer token and uses customer token endpoint", async () => {
   const calls = [];
   const challengePayload = {
     id: "ch_customer_key",
@@ -261,7 +294,7 @@ test("customer-key auth mode requires runtime customer key and mobile number onl
       amount: "150.00",
       currency: "INR",
       resource: "/api/customer-key",
-      availablePaymentMethods: ["SBMD"],
+      availablePaymentMethods: ["RESERVE_PAY"],
     },
     expires: "2030-01-01T00:00:00Z",
   };
@@ -270,11 +303,25 @@ test("customer-key auth mode requires runtime customer key and mobile number onl
     const parsed = new URL(String(input));
     calls.push({ host: parsed.host, path: parsed.pathname, init });
 
+    if (parsed.pathname === "/api/auth/v1/token") {
+      assert.deepEqual(JSON.parse(init.body), {
+        grant_type: "client_credentials",
+        client_id: "client-client",
+        client_secret: "client-secret",
+      });
+      return response(200, {
+        data: {
+          access_token: "customer-key-access-token",
+          expires_in: 300,
+        },
+      });
+    }
+
     if (parsed.pathname === "/api/v1/customer/mpp/token") {
       assert.equal(init.headers["X-Customer-Key"], "ck_customer_key");
-      assert.equal("Authorization" in init.headers, false);
+      assert.equal(init.headers.Authorization, "Bearer customer-key-access-token");
       assert.deepEqual(JSON.parse(init.body), {
-        payment_method: "SBMD",
+        payment_method: "RESERVE_PAY",
         customer: {
           mobile_number: "9876543210",
         },
@@ -283,7 +330,7 @@ test("customer-key auth mode requires runtime customer key and mobile number onl
       });
       return response(200, {
         payment_token: "P3P_TOK_customer_key",
-        type: "SBMD",
+        type: "RESERVE_PAY",
         payment_method_reference_id: "auth_customer_key",
         expires_in: 300,
       });
@@ -311,6 +358,8 @@ test("customer-key auth mode requires runtime customer key and mobile number onl
   const client = PineLabsOnlineClient.create({
     selectedPaymentMethod: PaymentMethod.UPI_RESERVE_PAY,
     customerAuthMode: P3PCustomerAuthMode.CustomerKey,
+    clientId: "client-client",
+    clientSecret: "client-secret",
     env: P3PEnvironment.SANDBOX,
     fetch: fetchImpl,
   });
@@ -329,6 +378,7 @@ test("customer-key auth mode requires runtime customer key and mobile number onl
     calls.map((call) => `${call.host}${call.path}`),
     [
       "server.example.com/api/customer-key",
+      "pluraluat.v2.pinepg.in/api/auth/v1/token",
       "api-staging.pluralonline.com/api/v1/customer/mpp/token",
       "server.example.com/api/customer-key",
     ],
@@ -346,7 +396,7 @@ test("client-credentials customer auth mode mints bearer token and calls central
       amount: "250.00",
       currency: "INR",
       resource: "/api/client-credentials",
-      availablePaymentMethods: ["SBMD"],
+      availablePaymentMethods: ["RESERVE_PAY"],
     },
     expires: "2030-01-01T00:00:00Z",
   };
@@ -373,7 +423,7 @@ test("client-credentials customer auth mode mints bearer token and calls central
       assert.equal(init.headers.Authorization, "Bearer client-access-token");
       assert.equal("X-Customer-Key" in init.headers, false);
       assert.deepEqual(JSON.parse(init.body), {
-        payment_method: "SBMD",
+        payment_method: "RESERVE_PAY",
         customer: {
           merchant_customer_reference: "cust-ref-123",
         },
@@ -382,7 +432,7 @@ test("client-credentials customer auth mode mints bearer token and calls central
       });
       return response(200, {
         payment_token: "P3P_TOK_client_credentials",
-        type: "SBMD",
+        type: "RESERVE_PAY",
         payment_method_reference_id: "auth_client_credentials",
         expires_in: 300,
       });
@@ -456,7 +506,7 @@ test("client defaults to client-credentials customer auth mode", async () => {
       assert.equal(init.headers.Authorization, "Bearer default-client-access-token");
       assert.equal("X-Customer-Key" in init.headers, false);
       assert.deepEqual(JSON.parse(init.body), {
-        payment_method: "SBMD",
+        payment_method: "RESERVE_PAY",
         customer: {
           merchant_customer_reference: "cust-ref-default",
         },
@@ -465,7 +515,7 @@ test("client defaults to client-credentials customer auth mode", async () => {
       });
       return response(200, {
         payment_token: "P3P_TOK_default",
-        type: "SBMD",
+        type: "RESERVE_PAY",
         payment_method_reference_id: "auth_default",
         expires_in: 300,
       });
@@ -510,7 +560,7 @@ test("auto handling rejects when selected payment method is not accepted by serv
       amount: "150.00",
       currency: "INR",
       resource: "/api/premium",
-      availablePaymentMethods: ["SBMD"],
+      availablePaymentMethods: ["RESERVE_PAY"],
     },
     expires: "2030-01-01T00:00:00Z",
   };
@@ -533,6 +583,8 @@ test("auto handling rejects when selected payment method is not accepted by serv
   const client = PineLabsOnlineClient.create({
     selectedPaymentMethod: PaymentMethod.Crypto,
     customerAuthMode: P3PCustomerAuthMode.CustomerKey,
+    clientId: "client-client",
+    clientSecret: "client-secret",
     env: P3PEnvironment.SANDBOX,
     fetch: fetchImpl,
   });
@@ -555,7 +607,7 @@ test("auto handling requires customer runtime context when config defaults are a
       amount: "150.00",
       currency: "INR",
       resource: "/api/premium",
-      availablePaymentMethods: ["SBMD"],
+      availablePaymentMethods: ["RESERVE_PAY"],
     },
     expires: "2030-01-01T00:00:00Z",
   };
@@ -575,6 +627,8 @@ test("auto handling requires customer runtime context when config defaults are a
   const client = PineLabsOnlineClient.create({
     selectedPaymentMethod: PaymentMethod.UPI_RESERVE_PAY,
     customerAuthMode: P3PCustomerAuthMode.CustomerKey,
+    clientId: "client-client",
+    clientSecret: "client-secret",
     env: P3PEnvironment.SANDBOX,
     fetch: fetchImpl,
   });
@@ -590,11 +644,19 @@ test("client token surface does not create mandates or expose revoke", async () 
   const fetchImpl = async (input, init = {}) => {
     const parsed = new URL(String(input));
     calls.push({ path: parsed.pathname, init });
+    if (parsed.pathname === "/api/auth/v1/token") {
+      return response(200, {
+        data: {
+          access_token: "surface-access-token",
+          expires_in: 300,
+        },
+      });
+    }
     if (parsed.pathname === "/api/v1/customer/mpp/token") {
       assert.equal(init.headers["X-Customer-Key"], "ck_test_customer");
-      assert.equal("Authorization" in init.headers, false);
+      assert.equal(init.headers.Authorization, "Bearer surface-access-token");
       assert.deepEqual(JSON.parse(init.body), {
-        payment_method: "SBMD",
+        payment_method: "RESERVE_PAY",
         customer: {
           mobile_number: "9876543210",
         },
@@ -604,7 +666,7 @@ test("client token surface does not create mandates or expose revoke", async () 
       return response(200, {
         data: {
           payment_token: "P3P_TOK_123",
-          type: "SBMD",
+          type: "RESERVE_PAY",
           payment_method_reference_id: "auth_123",
           expires_in: 300,
         },
@@ -616,6 +678,8 @@ test("client token surface does not create mandates or expose revoke", async () 
   const client = PineLabsOnlineClient.create({
     selectedPaymentMethod: PaymentMethod.UPI_RESERVE_PAY,
     customerAuthMode: P3PCustomerAuthMode.CustomerKey,
+    clientId: "client-client",
+    clientSecret: "client-secret",
     env: P3PEnvironment.SANDBOX,
     fetch: fetchImpl,
   });
@@ -633,21 +697,29 @@ test("client token surface does not create mandates or expose revoke", async () 
 
   assert.equal(token.token, "P3P_TOK_123");
   assert.equal(token.expires_in, 300);
-  assert.deepEqual(calls.map((call) => call.path), ["/api/v1/customer/mpp/token"]);
+  assert.deepEqual(calls.map((call) => call.path), ["/api/auth/v1/token", "/api/v1/customer/mpp/token"]);
 });
 
-test("client env selects sandbox URL for token calls without bearer auth", async () => {
+test("client env selects sandbox URL for token calls with bearer auth", async () => {
   const calls = [];
   const fetchImpl = async (input, init = {}) => {
     const parsed = new URL(String(input));
     calls.push({ host: parsed.host, path: parsed.pathname, init });
+    if (parsed.pathname === "/api/auth/v1/token") {
+      return response(200, {
+        data: {
+          access_token: "sandbox-access-token",
+          expires_in: 300,
+        },
+      });
+    }
     if (parsed.pathname === "/api/v1/customer/mpp/token") {
-      assert.equal("Authorization" in init.headers, false);
+      assert.equal(init.headers.Authorization, "Bearer sandbox-access-token");
       assert.equal(init.headers["X-Customer-Key"], "ck_test_customer");
       return response(200, {
         data: {
           payment_token: "P3P_TOK_123",
-          type: "SBMD",
+          type: "RESERVE_PAY",
           payment_method_reference_id: "auth_123",
           expires_in: 300,
         },
@@ -659,6 +731,8 @@ test("client env selects sandbox URL for token calls without bearer auth", async
   const client = PineLabsOnlineClient.create({
     selectedPaymentMethod: PaymentMethod.UPI_RESERVE_PAY,
     customerAuthMode: P3PCustomerAuthMode.CustomerKey,
+    clientId: "client-client",
+    clientSecret: "client-secret",
     env: P3PEnvironment.SANDBOX,
     fetch: fetchImpl,
   });
@@ -673,7 +747,7 @@ test("client env selects sandbox URL for token calls without bearer auth", async
 
   assert.deepEqual(
     calls.map((call) => `${call.host}${call.path}`),
-    ["api-staging.pluralonline.com/api/v1/customer/mpp/token"],
+    ["pluraluat.v2.pinepg.in/api/auth/v1/token", "api-staging.pluralonline.com/api/v1/customer/mpp/token"],
   );
 });
 
@@ -682,13 +756,21 @@ test("client env defaults to production when omitted by JavaScript callers", asy
   const fetchImpl = async (input, init = {}) => {
     const parsed = new URL(String(input));
     calls.push({ host: parsed.host, path: parsed.pathname, init });
+    if (parsed.pathname === "/api/auth/v1/token") {
+      return response(200, {
+        data: {
+          access_token: "production-access-token",
+          expires_in: 300,
+        },
+      });
+    }
     if (parsed.pathname === "/api/v1/customer/mpp/token") {
-      assert.equal("Authorization" in init.headers, false);
+      assert.equal(init.headers.Authorization, "Bearer production-access-token");
       assert.equal(init.headers["X-Customer-Key"], "ck_test_customer");
       return response(200, {
         data: {
           payment_token: "P3P_TOK_123",
-          type: "SBMD",
+          type: "RESERVE_PAY",
           payment_method_reference_id: "auth_123",
           expires_in: 300,
         },
@@ -700,6 +782,8 @@ test("client env defaults to production when omitted by JavaScript callers", asy
   const client = PineLabsOnlineClient.create({
     selectedPaymentMethod: PaymentMethod.UPI_RESERVE_PAY,
     customerAuthMode: P3PCustomerAuthMode.CustomerKey,
+    clientId: "client-client",
+    clientSecret: "client-secret",
     fetch: fetchImpl,
   });
 
@@ -713,7 +797,7 @@ test("client env defaults to production when omitted by JavaScript callers", asy
 
   assert.deepEqual(
     calls.map((call) => `${call.host}${call.path}`),
-    ["api.pluralonline.com/api/v1/customer/mpp/token"],
+    ["api.pluralpay.in/api/auth/v1/token", "api.pluralonline.com/api/v1/customer/mpp/token"],
   );
 });
 
@@ -722,11 +806,32 @@ test("client token creation uses staging customer token endpoint with customer k
   const fetchImpl = async (input, init = {}) => {
     const parsed = new URL(String(input));
     calls.push({ host: parsed.host, path: parsed.pathname, init });
+    if (parsed.host === "pluraluat.v2.pinepg.in" && parsed.pathname === "/api/auth/v1/token") {
+      assert.deepEqual(JSON.parse(init.body), {
+        grant_type: "client_credentials",
+        client_id: "client-client",
+        client_secret: "client-secret",
+      });
+      return response(200, {
+        data: {
+          access_token: "staging-access-token",
+          expires_in: 300,
+        },
+      });
+    }
+    if (parsed.host === "api-staging.pluralonline.com" && parsed.pathname === "/api/auth/v1/token") {
+      return response(200, {
+        data: {
+          access_token: "staging-access-token",
+          expires_in: 300,
+        },
+      });
+    }
     if (parsed.host === "api-staging.pluralonline.com" && parsed.pathname === "/api/v1/customer/mpp/token") {
-      assert.equal("Authorization" in init.headers, false);
+      assert.equal(init.headers.Authorization, "Bearer staging-access-token");
       assert.equal(init.headers["X-Customer-Key"], "ck_test_customer");
       assert.deepEqual(JSON.parse(init.body), {
-        payment_method: "SBMD",
+        payment_method: "RESERVE_PAY",
         customer: {
           mobile_number: "9876543210",
         },
@@ -736,7 +841,7 @@ test("client token creation uses staging customer token endpoint with customer k
       return response(200, {
         payment_token: "P3P_TOK_ce52c790-9140-47b1-b92f-e7e84caadc79",
         expires_in: 300,
-        type: "SBMD",
+        type: "RESERVE_PAY",
         payment_method_reference_id: "v1-sub-260527235716-aa-TmOgVb",
         payment_amount: {
           value: 300,
@@ -755,6 +860,8 @@ test("client token creation uses staging customer token endpoint with customer k
   const client = PineLabsOnlineClient.create({
     selectedPaymentMethod: PaymentMethod.UPI_RESERVE_PAY,
     customerAuthMode: P3PCustomerAuthMode.CustomerKey,
+    clientId: "client-client",
+    clientSecret: "client-secret",
     env: P3PEnvironment.SANDBOX,
     fetch: fetchImpl,
   });
@@ -778,7 +885,7 @@ test("client token creation uses staging customer token endpoint with customer k
   assert.equal(token.expires_in, 300);
   assert.deepEqual(
     calls.map((call) => `${call.host}${call.path}`),
-    ["api-staging.pluralonline.com/api/v1/customer/mpp/token"],
+    ["pluraluat.v2.pinepg.in/api/auth/v1/token", "api-staging.pluralonline.com/api/v1/customer/mpp/token"],
   );
 });
 
@@ -800,13 +907,21 @@ test("customer key is sent only from per-call token options", async () => {
   const fetchImpl = async (input, init = {}) => {
     const parsed = new URL(String(input));
     calls.push({ path: parsed.pathname, init });
+    if (parsed.pathname === "/api/auth/v1/token") {
+      return response(200, {
+        data: {
+          access_token: "per-call-access-token",
+          expires_in: 300,
+        },
+      });
+    }
     if (parsed.pathname === "/api/v1/customer/mpp/token") {
       assert.equal(init.headers["X-Customer-Key"], "ck_test_customer");
-      assert.equal("Authorization" in init.headers, false);
+      assert.equal(init.headers.Authorization, "Bearer per-call-access-token");
       return response(200, {
         data: {
           payment_token: "P3P_TOK_123",
-          type: "SBMD",
+          type: "RESERVE_PAY",
           payment_method_reference_id: "auth_123",
           expires_in: 300,
         },
@@ -818,6 +933,8 @@ test("customer key is sent only from per-call token options", async () => {
   const client = PineLabsOnlineClient.create({
     selectedPaymentMethod: PaymentMethod.UPI_RESERVE_PAY,
     customerAuthMode: P3PCustomerAuthMode.CustomerKey,
+    clientId: "client-client",
+    clientSecret: "client-secret",
     env: P3PEnvironment.SANDBOX,
     fetch: fetchImpl,
   });
@@ -830,7 +947,7 @@ test("customer key is sent only from per-call token options", async () => {
     paymentAmount: { value: 100, currency: "INR" },
   });
 
-  assert.deepEqual(calls.map((call) => call.path), ["/api/v1/customer/mpp/token"]);
+  assert.deepEqual(calls.map((call) => call.path), ["/api/auth/v1/token", "/api/v1/customer/mpp/token"]);
 });
 
 test("decodeReceipt parses Payment-Receipt headers", () => {

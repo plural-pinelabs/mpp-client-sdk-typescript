@@ -1,6 +1,6 @@
 {
-  "name": "@pine-labs-online/p3p-client-sdk",
-  "version": "0.1.5",
+  "name": "p3p-client-sdk",
+  "version": "0.1.7",
   "description": "Pine Labs Online P3P Client SDK - Pine Labs Online P3P client for AI agents (TypeScript)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

@@ -8,7 +8,7 @@ retries protected requests with a `Payment` credential, and parses
 ## Install
 
 ```bash
-npm install @pine-labs-online/p3p-client-sdk
+npm install p3p-client-sdk
 ```
 
 Requires Node.js `>=18` or another runtime with `fetch`, `AbortSignal.timeout`,
@@ -21,7 +21,7 @@ import {
   P3PEnvironment,
   PaymentMethod,
   PineLabsOnlineClient,
-} from "@pine-labs-online/p3p-client-sdk";
+} from "p3p-client-sdk";
 
 const client = PineLabsOnlineClient.create({
   selectedPaymentMethod: PaymentMethod.UPI_RESERVE_PAY,
@@ -67,6 +67,9 @@ For customer API-token flows, explicitly set
 `customerAuthMode: P3PCustomerAuthMode.CustomerKey` and pass `customerKey` plus
 `mobileNumber` in the runtime context.
 
+Keep the client SDK instance long-lived in production. Auth tokens are cached
+per SDK instance, and concurrent refresh is deduped within one instance.
+
 Runtime context is passed as a separate argument after `RequestInit`; it is not
 merged into fetch options and is never sent to the server as part of the
 original request:
@@ -85,7 +88,7 @@ selected method is sent as the P3P service payload `type` when creating a token 
 
 Currently supported values:
 
-- `PaymentMethod.UPI_RESERVE_PAY` -> `"SBMD"`
+- `PaymentMethod.UPI_RESERVE_PAY` -> `"RESERVE_PAY"`
 - `PaymentMethod.Crypto` -> `"CRYPTO"`
 
 ## Direct P3P API
@@ -107,12 +110,14 @@ SDK only creates the one-time token for a server challenge.
 Token creation uses the configured auth mode. In the default client-credentials
 mode, the SDK obtains a bearer token from `POST /api/auth/v1/token` and calls
 `POST /mpp/v1/token` on the configured P3P environment host. In customer-key
-mode, the SDK calls the customer token host for the selected environment with
-`X-Customer-Key` and no bearer `Authorization` header:
+mode, the SDK still obtains a bearer token from `POST /api/auth/v1/token`, then
+calls the customer token host for the selected environment with both bearer
+`Authorization` and `X-Customer-Key`:
 
 ```text
 Sandbox:    POST https://api-staging.pluralonline.com/api/v1/customer/mpp/token
 Production: POST https://api.pluralonline.com/api/v1/customer/mpp/token
+Authorization: Bearer <access token>
 X-Customer-Key: <customer API token>
 Content-Type: application/json
 ```
@@ -121,6 +126,17 @@ The current P3P request bodies use nested customer objects:
 
 - `POST /api/v1/customer/mpp/token` sends `customer.mobile_number`,
   `challenge_id`, and numeric `payment_amount.value`.
+
+Timeout and retry settings (`requestTimeoutMs`, `maxRetries`,
+`initialRetryDelayMs`) apply to internal P3P calls only. The original
+protected-resource request uses the integrator's own HTTP timeout policy.
+
+Environment defaults:
+
+| Env | URL | Timeout | Retries | Initial retry delay |
+|---|---|---:|---:|---:|
+| `P3PEnvironment.SANDBOX` | `https://pluraluat.v2.pinepg.in` | 60000 ms | 3 | 500 ms |
+| `P3PEnvironment.PRODUCTION` | `https://api.pluralpay.in` | 45000 ms | 3 | 500 ms |
 
 ## 402 Flow
 
@@ -143,7 +159,7 @@ import {
   decodeChallenge,
   decodeReceipt,
   validateChallenge,
-} from "@pine-labs-online/p3p-client-sdk";
+} from "p3p-client-sdk";
 
 const challenge = decodeChallenge(wwwAuthenticateHeader);
 validateChallenge(challenge);

@@ -7,6 +7,7 @@ const REFRESH_SKEW_MS = 5 * 60_000;
 export class AuthManager {
   private accessToken?: string;
   private expiresAt = 0;
+  private refreshPromise?: Promise<string>;
 
   constructor(
     private config: PineLabsOnlineClientConfig,
@@ -19,6 +20,19 @@ export class AuthManager {
     if (this.accessToken && Date.now() < this.refreshAtMs()) {
       return this.accessToken;
     }
+    if (this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    this.refreshPromise = this.exchangeToken();
+    try {
+      return await this.refreshPromise;
+    } finally {
+      this.refreshPromise = undefined;
+    }
+  }
+
+  private async exchangeToken(): Promise<string> {
     const response = await requestWithRetry(this.fetchImpl, `${stripSlash(this.baseUrl)}/api/auth/v1/token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

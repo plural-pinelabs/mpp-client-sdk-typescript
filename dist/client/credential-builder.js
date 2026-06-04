@@ -10,7 +10,7 @@ exports.selectPaymentMethod = selectPaymentMethod;
 const types_1 = require("../types");
 const base64url_1 = require("../utils/base64url");
 const parsers_1 = require("../utils/parsers");
-/** Decode and validate a seller `WWW-Authenticate: Payment ...` challenge. */
+/** Decode and validate a server `WWW-Authenticate: Payment ...` challenge. */
 function decodeChallenge(wwwAuthenticateHeader) {
     const encoded = extractBase64Payload(wwwAuthenticateHeader);
     if (!encoded) {
@@ -21,7 +21,7 @@ function decodeChallenge(wwwAuthenticateHeader) {
     validateChallenge(challenge);
     return challenge;
 }
-/** Build the buyer credential object that authorizes one seller debit attempt. */
+/** Build the client credential object that authorizes one server debit attempt. */
 function buildCredential(challenge, agentId, token, paymentMethod, customerReference, mobileNumber) {
     return {
         challenge,
@@ -49,12 +49,12 @@ function encodeCredentialHeader(credential) {
     }
     payload.payment_method = credential.payload.payment_method;
     return `${types_1.PAYMENT_HEADER_PREFIX}${(0, base64url_1.encodeJson)({
-        challenge: credential.challenge,
+        challenge: challengePayload(credential.challenge),
         source: credential.source,
         payload,
     })}`;
 }
-/** Decode a seller `Payment-Receipt` header into a typed receipt. */
+/** Decode a server `Payment-Receipt` header into a typed receipt. */
 function decodeReceipt(paymentReceiptHeader) {
     const encoded = extractBase64Payload(paymentReceiptHeader);
     if (!encoded) {
@@ -86,9 +86,6 @@ function decodeReceipt(paymentReceiptHeader) {
 function validateChallenge(challenge) {
     if (!challenge.id) {
         throw new types_1.P3PChallengeError("Challenge missing id", "");
-    }
-    if (challenge.paymentGateway !== types_1.PaymentGateway.PineLabsOnline) {
-        throw new types_1.P3PChallengeError(`Unsupported payment gateway: ${challenge.paymentGateway}. Expected "${types_1.PaymentGateway.PineLabsOnline}"`, challenge.id);
     }
     if (!challenge.request?.amount || !challenge.request.currency) {
         throw new types_1.P3PChallengeError("Challenge missing payment request details", challenge.id);
@@ -122,7 +119,6 @@ function dictToChallenge(raw) {
     return {
         id: String(record.id ?? ""),
         realm: String(record.realm ?? ""),
-        paymentGateway: parsePaymentGateway(record.paymentGateway ?? record.payment_gateway),
         intent: String(record.intent ?? ""),
         request: {
             scheme: String(req.scheme ?? ""),
@@ -136,15 +132,15 @@ function dictToChallenge(raw) {
 }
 function selectPaymentMethod(challenge, selectedPaymentMethod) {
     if (!challenge.request.availablePaymentMethods.includes(selectedPaymentMethod)) {
-        throw new types_1.P3PChallengeError(`Selected payment method ${selectedPaymentMethod} is not accepted by this seller challenge`, challenge.id);
+        throw new types_1.P3PChallengeError(`Selected payment method ${selectedPaymentMethod} is not accepted by this server challenge`, challenge.id);
     }
     return selectedPaymentMethod;
 }
 function parsePaymentGateway(value) {
-    return value === types_1.PaymentGateway.PineLabsOnline ? types_1.PaymentGateway.PineLabsOnline : String(value ?? "");
+    return value === undefined || value === null ? undefined : String(value);
 }
 function parsePaymentMethod(value) {
-    if (value === types_1.PaymentMethod.UpiSbmd || value === types_1.PaymentMethod.Crypto) {
+    if (value === types_1.PaymentMethod.RESERVE_PAY || value === types_1.PaymentMethod.Crypto) {
         return value;
     }
     return String(value ?? "");
@@ -154,4 +150,13 @@ function parsePaymentMethods(value) {
         return [];
     }
     return value.map(parsePaymentMethod);
+}
+function challengePayload(challenge) {
+    return {
+        id: challenge.id,
+        realm: challenge.realm,
+        intent: challenge.intent,
+        request: challenge.request,
+        expires: challenge.expires,
+    };
 }
