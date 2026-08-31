@@ -23,7 +23,6 @@ function deferred() {
 
 function config() {
   return {
-    selectedPaymentMethod: PaymentMethod.UPI_RESERVE_PAY,
     env: P3PEnvironment.SANDBOX,
     clientId: "client-client",
     clientSecret: "client-secret",

@@ -17,4 +17,5 @@ Object.defineProperty(exports, "__esModule", { value: true });
 __exportStar(require("./config"), exports);
 __exportStar(require("./types"), exports);
 __exportStar(require("./utils"), exports);
+__exportStar(require("./grantex"), exports);
 __exportStar(require("./client"), exports);

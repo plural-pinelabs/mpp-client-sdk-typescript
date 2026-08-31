@@ -9,5 +9,6 @@ export declare class FetchInterceptor {
     request(method: string, url: string, init?: RequestInit, context?: ClientRuntimeContext): Promise<Response>;
     /** Create a one-time P3P token and wrap it in a Payment credential. */
     createCredentialForChallenge(challenge: Challenge, context?: ClientRuntimeContext): Promise<Credential>;
+    private verifyGrantexForPayment;
     private handle402;
 }

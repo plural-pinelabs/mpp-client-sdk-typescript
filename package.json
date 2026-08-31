@@ -1,13 +1,13 @@
 {
   "name": "p3p-client-sdk",
-  "version": "0.1.7",
+  "version": "1.1.0",
   "description": "Pine Labs Online P3P Client SDK - Pine Labs Online P3P client for AI agents (TypeScript)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/plural-pinelabs/mpp-server-sdk-typescript"
+    "url": "https://github.com/plural-pinelabs/mpp-client-sdk-typescript"
   },
   "keywords": [
     "p3p",
@@ -16,7 +16,7 @@
     "client",
     "pinelabs",
     "upi",
-    "sbmd",
+    "reserve-pay",
     "pinelabs-payment-protocol"
   ],
   "engines": {
@@ -36,6 +36,11 @@
       "types": "./dist/client/index.d.ts",
       "require": "./dist/client/index.js",
       "default": "./dist/client/index.js"
+    },
+    "./grantex": {
+      "types": "./dist/grantex/index.d.ts",
+      "require": "./dist/grantex/index.js",
+      "default": "./dist/grantex/index.js"
     },
     "./config": {
       "types": "./dist/config/index.d.ts",
@@ -64,6 +69,9 @@
     "clean": "rm -rf dist",
     "test": "npm run build && node --test tests/*.test.mjs",
     "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@grantex/sdk": "0.3.8"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",

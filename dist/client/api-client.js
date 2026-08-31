@@ -28,32 +28,35 @@ class ApiClient {
             ...options,
         };
         (0, validation_1.validateCreateTokenOptions)(tokenOptions, customerAuthMode);
-        const customerReference = tokenOptions.customerReference ?? tokenOptions.customerId ?? "";
         const mobileNumber = tokenOptions.mobileNumber ?? "";
         const paymentAmount = tokenOptions.paymentAmount ?? {
             value: tokenOptions.usageLimits.maxAmount,
             currency: tokenOptions.usageLimits.currency,
         };
         const body = {
-            payment_method: tokenOptions.paymentMethod ?? this.config.selectedPaymentMethod,
-            customer: customerPayload(customerReference, mobileNumber, customerAuthMode),
+            payment_method: tokenOptions.paymentMethod,
+            customer: customerPayload(mobileNumber, customerAuthMode),
             challenge_id: tokenOptions.challengeId,
             payment_amount: amountPayload(paymentAmount),
         };
+        const paymentMethodReferenceId = tokenOptions.paymentMethodReferenceId?.trim();
+        if (paymentMethodReferenceId) {
+            body.payment_method_reference_id = paymentMethodReferenceId;
+        }
         const data = await this.request("POST", customerAuthMode === types_1.P3PCustomerAuthMode.CustomerKey ? CUSTOMER_TOKEN_PATH : CENTRAL_TOKEN_PATH, body, await this.authHeaders(customerAuthMode, tokenOptions.customerKey), customerAuthMode === types_1.P3PCustomerAuthMode.CustomerKey
             ? resolveCustomerTokenBaseUrl(this.baseUrl)
             : this.baseUrl);
         return (0, parsers_1.parseToken)(data);
     }
     async authHeaders(customerAuthMode, customerKey) {
-        if (customerAuthMode === types_1.P3PCustomerAuthMode.CustomerKey) {
-            return customerKeyHeader(customerKey);
-        }
-        const token = await this.auth?.getAccessToken();
+        const token = await this.auth.getAccessToken();
         if (!token) {
-            throw new types_1.P3PError("P3P_AUTHENTICATION_FAILED", "Client credentials auth manager is not configured", 500);
+            throw new types_1.P3PError("P3P_AUTHENTICATION_FAILED", "Auth manager is not configured", 500);
         }
-        return { Authorization: `Bearer ${token}` };
+        return {
+            Authorization: `Bearer ${token}`,
+            ...(customerAuthMode === types_1.P3PCustomerAuthMode.CustomerKey ? customerKeyHeader(customerKey) : {}),
+        };
     }
     /** P3P request wrapper that unwraps `{ data: ... }` envelopes. */
     async request(method, path, body, extraHeaders = {}, baseUrl = this.baseUrl) {
@@ -90,14 +93,11 @@ function resolveCustomerTokenBaseUrl(baseUrl) {
         ? CUSTOMER_TOKEN_SANDBOX_BASE_URL
         : CUSTOMER_TOKEN_PRODUCTION_BASE_URL;
 }
-function customerPayload(customerReference, mobileNumber, customerAuthMode) {
+function customerPayload(mobileNumber, customerAuthMode) {
     if (customerAuthMode === types_1.P3PCustomerAuthMode.CustomerKey) {
         return { mobile_number: mobileNumber };
     }
-    return {
-        ...(customerReference ? { merchant_customer_reference: customerReference } : {}),
-        ...(mobileNumber ? { mobile_number: mobileNumber } : {}),
-    };
+    return { mobile_number: mobileNumber };
 }
 function amountPayload(amount) {
     return { value: amount.value, currency: amount.currency };

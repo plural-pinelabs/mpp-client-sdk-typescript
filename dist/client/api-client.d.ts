@@ -4,8 +4,8 @@ export declare class ApiClient {
     private config;
     private baseUrl;
     private fetchImpl;
-    private auth?;
-    constructor(config: PineLabsOnlineClientConfig, baseUrl: string, fetchImpl: FetchLike, auth?: AuthManager | undefined);
+    private auth;
+    constructor(config: PineLabsOnlineClientConfig, baseUrl: string, fetchImpl: FetchLike, auth: AuthManager);
     /** Create a one-time payment token for an active authorization. */
     createToken(options: CreateTokenOptions): Promise<Token>;
     private authHeaders;

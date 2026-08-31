@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.validateConfig = validateConfig;
 exports.validateCreateTokenOptions = validateCreateTokenOptions;
 exports.isSupportedPaymentMethod = isSupportedPaymentMethod;
+exports.unsupportedPaymentMethodError = unsupportedPaymentMethodError;
 exports.resolveCustomerAuthMode = resolveCustomerAuthMode;
 const config_1 = require("../config");
 const types_1 = require("../types");
@@ -10,18 +11,11 @@ function validateConfig(config) {
     if (config.env !== undefined && !(0, config_1.isP3PEnvironment)(config.env)) {
         throw new Error("PineLabsOnlineClientConfig: env must be P3PEnvironment.SANDBOX or P3PEnvironment.PRODUCTION");
     }
-    const customerAuthMode = resolveCustomerAuthMode(config);
-    if (customerAuthMode === types_1.P3PCustomerAuthMode.ClientCredentials) {
-        if (!requiredText(config.clientId) || !requiredText(config.clientSecret)) {
-            throw new Error("PineLabsOnlineClientConfig: clientId and clientSecret are required when customerAuthMode is CLIENT_CREDENTIALS");
-        }
-    }
-    if (!isSupportedPaymentMethod(config.selectedPaymentMethod)) {
-        throw new Error("PineLabsOnlineClientConfig: selectedPaymentMethod must be a supported payment method");
+    if (!requiredText(config.clientId) || !requiredText(config.clientSecret)) {
+        throw new Error("PineLabsOnlineClientConfig: clientId and clientSecret are required");
     }
 }
 function validateCreateTokenOptions(options, customerAuthMode = types_1.P3PCustomerAuthMode.ClientCredentials) {
-    const customerReference = requiredText(options.customerReference ?? options.customerId);
     const mobileNumber = requiredText(options.mobileNumber);
     if (customerAuthMode === types_1.P3PCustomerAuthMode.CustomerKey) {
         if (!requiredText(options.customerKey)) {
@@ -32,8 +26,8 @@ function validateCreateTokenOptions(options, customerAuthMode = types_1.P3PCusto
         }
     }
     else if (customerAuthMode === types_1.P3PCustomerAuthMode.ClientCredentials) {
-        if (!customerReference && !mobileNumber) {
-            throw new Error("CreateTokenOptions: customerReference or mobileNumber is required when customerAuthMode is CLIENT_CREDENTIALS");
+        if (!mobileNumber) {
+            throw new Error("CreateTokenOptions: mobileNumber is required when customerAuthMode is CLIENT_CREDENTIALS");
         }
     }
     else {
@@ -50,12 +44,24 @@ function validateCreateTokenOptions(options, customerAuthMode = types_1.P3PCusto
     if (!paymentCurrency) {
         throw new Error("CreateTokenOptions: paymentAmount.currency is required");
     }
-    if (options.paymentMethod !== undefined && !isSupportedPaymentMethod(options.paymentMethod)) {
-        throw new Error("CreateTokenOptions: paymentMethod must be a supported payment method");
+    if (options.paymentMethod === undefined) {
+        throw new Error("CreateTokenOptions: paymentMethod is required");
+    }
+    if (!isSupportedPaymentMethod(options.paymentMethod)) {
+        throw unsupportedPaymentMethodError("CreateTokenOptions: paymentMethod", options.paymentMethod);
     }
 }
 function isSupportedPaymentMethod(value) {
-    return value === types_1.PaymentMethod.RESERVE_PAY || value === types_1.PaymentMethod.Crypto;
+    return value === types_1.PaymentMethod.RESERVE_PAY
+        || value === types_1.PaymentMethod.OTM
+        || value === types_1.PaymentMethod.CARD
+        || value === types_1.PaymentMethod.CREDIT_EMI;
+}
+function unsupportedPaymentMethodError(context, value) {
+    if (value === types_1.PaymentMethod.Crypto) {
+        return new Error(`${context}: PaymentMethod.Crypto is currently not supported in SDKs`);
+    }
+    return new Error(`${context}: payment method must be RESERVE_PAY, OTM, CARD, or CREDIT_EMI`);
 }
 function resolveCustomerAuthMode(config) {
     const mode = config.customerAuthMode ?? types_1.P3PCustomerAuthMode.ClientCredentials;

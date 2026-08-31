@@ -33,18 +33,21 @@ export class ApiClient {
       ...options,
     };
     validateCreateTokenOptions(tokenOptions, customerAuthMode);
-    const customerReference = tokenOptions.customerReference ?? tokenOptions.customerId ?? "";
     const mobileNumber = tokenOptions.mobileNumber ?? "";
     const paymentAmount = tokenOptions.paymentAmount ?? {
       value: tokenOptions.usageLimits!.maxAmount,
       currency: tokenOptions.usageLimits!.currency,
     };
     const body: Record<string, unknown> = {
-      payment_method: tokenOptions.paymentMethod ?? this.config.selectedPaymentMethod,
-      customer: customerPayload(customerReference, mobileNumber, customerAuthMode),
+      payment_method: tokenOptions.paymentMethod,
+      customer: customerPayload(mobileNumber, customerAuthMode),
       challenge_id: tokenOptions.challengeId,
       payment_amount: amountPayload(paymentAmount),
     };
+    const paymentMethodReferenceId = tokenOptions.paymentMethodReferenceId?.trim();
+    if (paymentMethodReferenceId) {
+      body.payment_method_reference_id = paymentMethodReferenceId;
+    }
     const data = await this.request(
       "POST",
       customerAuthMode === P3PCustomerAuthMode.CustomerKey ? CUSTOMER_TOKEN_PATH : CENTRAL_TOKEN_PATH,
@@ -113,14 +116,11 @@ function resolveCustomerTokenBaseUrl(baseUrl: string): string {
     : CUSTOMER_TOKEN_PRODUCTION_BASE_URL;
 }
 
-function customerPayload(customerReference: string, mobileNumber: string, customerAuthMode: P3PCustomerAuthMode): Record<string, string> {
+function customerPayload(mobileNumber: string, customerAuthMode: P3PCustomerAuthMode): Record<string, string> {
   if (customerAuthMode === P3PCustomerAuthMode.CustomerKey) {
     return { mobile_number: mobileNumber };
   }
-  return {
-    ...(customerReference ? { merchant_customer_reference: customerReference } : {}),
-    ...(mobileNumber ? { mobile_number: mobileNumber } : {}),
-  };
+  return { mobile_number: mobileNumber };
 }
 
 function amountPayload(amount: Amount): Record<string, unknown> {

@@ -2,7 +2,6 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PineLabsOnlineClient = exports.PineLabsOnlineClientInstance = exports.ClientMethods = void 0;
 const config_1 = require("../config");
-const types_1 = require("../types");
 const validation_1 = require("../utils/validation");
 const api_client_1 = require("./api-client");
 const auth_manager_1 = require("./auth-manager");
@@ -67,16 +66,15 @@ class PineLabsOnlineClient {
     /** Create a client SDK instance from `PineLabsOnlineClientConfig`. */
     static create(config) {
         (0, validation_1.validateConfig)(config);
+        const resolvedConfig = (0, config_1.withP3PEnvironmentDefaults)(config);
         const fetchImpl = config.fetch ?? globalThis.fetch?.bind(globalThis);
         if (!fetchImpl) {
             throw new Error("A fetch implementation is required.");
         }
-        const envBaseUrl = (0, config_1.resolveP3PBaseUrl)(config.env);
-        const auth = (0, validation_1.resolveCustomerAuthMode)(config) === types_1.P3PCustomerAuthMode.ClientCredentials
-            ? new auth_manager_1.AuthManager(config, envBaseUrl, fetchImpl)
-            : undefined;
-        const api = new api_client_1.ApiClient(config, envBaseUrl, fetchImpl, auth);
-        const interceptor = new fetch_interceptor_1.FetchInterceptor(config, api, fetchImpl);
+        const envBaseUrl = (0, config_1.resolveP3PBaseUrl)(resolvedConfig.env);
+        const auth = new auth_manager_1.AuthManager(resolvedConfig, envBaseUrl, fetchImpl);
+        const api = new api_client_1.ApiClient(resolvedConfig, envBaseUrl, fetchImpl, auth);
+        const interceptor = new fetch_interceptor_1.FetchInterceptor(resolvedConfig, api, fetchImpl);
         return new PineLabsOnlineClientInstance(interceptor, fetchImpl, new ClientMethods(api));
     }
 }

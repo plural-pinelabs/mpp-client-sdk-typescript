@@ -8,16 +8,12 @@ export function validateConfig(config: PineLabsOnlineClientConfig): void {
   if (!requiredText(config.clientId) || !requiredText(config.clientSecret)) {
     throw new Error("PineLabsOnlineClientConfig: clientId and clientSecret are required");
   }
-  if (!isSupportedPaymentMethod(config.selectedPaymentMethod)) {
-    throw new Error("PineLabsOnlineClientConfig: selectedPaymentMethod must be a supported payment method");
-  }
 }
 
 export function validateCreateTokenOptions(
   options: CreateTokenOptions,
   customerAuthMode: P3PCustomerAuthMode = P3PCustomerAuthMode.ClientCredentials,
 ): void {
-  const customerReference = requiredText(options.customerReference ?? options.customerId);
   const mobileNumber = requiredText(options.mobileNumber);
   if (customerAuthMode === P3PCustomerAuthMode.CustomerKey) {
     if (!requiredText(options.customerKey)) {
@@ -27,8 +23,8 @@ export function validateCreateTokenOptions(
       throw new Error("CreateTokenOptions: mobileNumber is required when customerAuthMode is CUSTOMER_KEY");
     }
   } else if (customerAuthMode === P3PCustomerAuthMode.ClientCredentials) {
-    if (!customerReference && !mobileNumber) {
-      throw new Error("CreateTokenOptions: customerReference or mobileNumber is required when customerAuthMode is CLIENT_CREDENTIALS");
+    if (!mobileNumber) {
+      throw new Error("CreateTokenOptions: mobileNumber is required when customerAuthMode is CLIENT_CREDENTIALS");
     }
   } else {
     throw new Error("CreateTokenOptions: customerAuthMode must be CUSTOMER_KEY or CLIENT_CREDENTIALS");
@@ -44,13 +40,26 @@ export function validateCreateTokenOptions(
   if (!paymentCurrency) {
     throw new Error("CreateTokenOptions: paymentAmount.currency is required");
   }
-  if (options.paymentMethod !== undefined && !isSupportedPaymentMethod(options.paymentMethod)) {
-    throw new Error("CreateTokenOptions: paymentMethod must be a supported payment method");
+  if (options.paymentMethod === undefined) {
+    throw new Error("CreateTokenOptions: paymentMethod is required");
+  }
+  if (!isSupportedPaymentMethod(options.paymentMethod)) {
+    throw unsupportedPaymentMethodError("CreateTokenOptions: paymentMethod", options.paymentMethod);
   }
 }
 
 export function isSupportedPaymentMethod(value: unknown): value is PaymentMethod {
-  return value === PaymentMethod.UPI_RESERVE_PAY || value === PaymentMethod.Crypto;
+  return value === PaymentMethod.RESERVE_PAY
+    || value === PaymentMethod.OTM
+    || value === PaymentMethod.CARD
+    || value === PaymentMethod.CREDIT_EMI;
+}
+
+export function unsupportedPaymentMethodError(context: string, value: unknown): Error {
+  if (value === PaymentMethod.Crypto) {
+    return new Error(`${context}: PaymentMethod.Crypto is currently not supported in SDKs`);
+  }
+  return new Error(`${context}: payment method must be RESERVE_PAY, OTM, CARD, or CREDIT_EMI`);
 }
 
 export function resolveCustomerAuthMode(config: Pick<PineLabsOnlineClientConfig, "customerAuthMode">): P3PCustomerAuthMode {

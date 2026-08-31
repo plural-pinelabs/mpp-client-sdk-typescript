@@ -5,8 +5,10 @@ export declare class AuthManager {
     private fetchImpl;
     private accessToken?;
     private expiresAt;
+    private refreshPromise?;
     constructor(config: PineLabsOnlineClientConfig, baseUrl: string, fetchImpl: FetchLike);
     /** Return a valid bearer token, reusing cached client-credential tokens where possible. */
     getAccessToken(): Promise<string>;
+    private exchangeToken;
     private refreshAtMs;
 }

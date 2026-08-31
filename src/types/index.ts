@@ -5,6 +5,7 @@ export type FetchLike = (input: string | URL | Request, init?: RequestInit) => P
 
 export const PAYMENT_CREDENTIAL_HEADER = "P3P-Credential";
 export const PAYMENT_HEADER_PREFIX = "Payment ";
+export const GRANTEX_TOKEN_HEADER = "X-Grantex-Token";
 
 /** Payment gateway enum retained for receipt/config context. */
 export enum PaymentGateway {
@@ -13,7 +14,10 @@ export enum PaymentGateway {
 
 /** Payment methods supported by the current P3P service payload contract. */
 export enum PaymentMethod {
-  UPI_RESERVE_PAY = "RESERVE_PAY",
+  RESERVE_PAY = "RESERVE_PAY",
+  OTM = "OTM",
+  CARD = "CARD",
+  CREDIT_EMI = "CREDIT_EMI",
   Crypto = "CRYPTO",
 }
 
@@ -31,6 +35,62 @@ export interface P3PLogger {
   info(message: string, context?: Record<string, unknown>): void;
   /** Error event for failed network, challenge, or payment operations. */
   error(message: string, context?: Record<string, unknown>): void;
+}
+
+/** Normalized Grantex grant returned after delegated authorization verification. */
+export interface GrantexVerifiedGrant {
+  tokenId: string;
+  grantId: string;
+  principalId: string;
+  agentDid: string;
+  developerId: string;
+  scopes: string[];
+  issuedAt: number;
+  expiresAt: number;
+  parentAgentDid?: string;
+  parentGrantId?: string;
+  delegationDepth?: number;
+}
+
+export interface GrantexVerificationResult {
+  valid: boolean;
+  grant?: GrantexVerifiedGrant;
+  error?: string;
+}
+
+export interface GrantexVerifierLike {
+  verify(token: string): Promise<GrantexVerificationResult>;
+}
+
+export interface ClientGrantexConfig {
+  /** Grant token to forward as `X-Grantex-Token`. Can be overridden per request. */
+  grantToken?: string | null;
+  /**
+   * Base URL of your Grantex instance, e.g. `https://my-grantex.company.com`.
+   * JWKS is auto-derived by appending `/.well-known/jwks.json`.
+   * Defaults to `https://api.grantex.dev` when not set.
+   */
+  baseUrl?: string;
+  /** Override the full Grantex JWKS URL. Takes precedence over `baseUrl`. Alias: `jwksUrl`. */
+  jwksUri?: string;
+  /** Compatibility alias for `jwksUri`. */
+  jwksUrl?: string;
+  /** Required scopes. Wildcards such as `mpp:*` and `mpp:payment:*` are honored. */
+  requiredScopes?: string[];
+  /** Expected issuer URL passed through to Grantex verification. */
+  issuer?: string;
+  /** DID-web issuer shortcut supported by the published Grantex SDK. */
+  issuerDid?: string;
+  /** Optional JWT audience. */
+  audience?: string;
+  /** Optional expected agent DID; must match the grant `agt` claim. */
+  agentId?: string;
+  /** Optional clock tolerance in seconds. */
+  clockTolerance?: number;
+  /** When true, missing/invalid grants fail before token creation. Defaults to false. */
+  enforceGrant?: boolean;
+  /** Test/advanced hook; defaults to the published `@grantex/sdk` verifier when JWKS is configured. */
+  verifier?: GrantexVerifierLike;
 }
 
 /** Money amount expressed in the smallest unit for the currency, e.g. paise for INR. */
@@ -63,6 +123,7 @@ export interface Challenge {
 export interface CredentialPayload {
   type: "token";
   token: string;
+  payment_method_reference_id?: string;
   customer_reference?: string;
   mobile_number?: string;
   payment_method: PaymentMethod;
@@ -102,8 +163,6 @@ export interface TokenDefaults {
 
 /** Configuration required to construct a client SDK instance. */
 export interface PineLabsOnlineClientConfig {
-  /** Selected payment method for this client instance. */
-  selectedPaymentMethod: PaymentMethod;
   /** Pine Labs Online P3P environment used for P3P service calls. Defaults to production when omitted at runtime. */
   env?: P3PEnvironmentValue;
   /** Customer authorization mode for token creation. Defaults to `CLIENT_CREDENTIALS`. */
@@ -130,16 +189,24 @@ export interface PineLabsOnlineClientConfig {
   logger?: P3PLogger;
   /** Custom fetch implementation for tests or non-standard runtimes. */
   fetch?: FetchLike;
+  /** Optional delegated authorization token forwarding and verification. */
+  grantex?: ClientGrantexConfig;
 }
 
 /** Per-request customer context for shared client instances serving many customers. */
 export interface ClientRuntimeContext {
   /** Customer key sent as `X-Customer-Key` on token calls. */
   customerKey?: string | null;
-  /** Customer reference sent as `customer.merchant_customer_reference` and embedded in Payment credentials. */
+  /** Legacy customer reference retained for compatibility; current token and debit flows use `mobileNumber`. */
   customerReference?: string | null;
   /** Mobile number sent as `customer.mobile_number` to the customer token endpoint. */
   mobileNumber?: string | null;
+  /** Payment method selected for this request's automatic 402 token creation. */
+  paymentMethod: PaymentMethod;
+  /** Active mandate/pre-authorization reference forwarded through token creation and the payment credential. */
+  paymentMethodReferenceId?: string | null;
+  /** Per-request Grantex token override forwarded as `X-Grantex-Token`. */
+  grantexToken?: string | null;
 }
 
 /** Legacy token-limit shape kept for backwards-compatible constructors. */
@@ -154,7 +221,7 @@ export interface CreateTokenUsageLimits {
 export interface CreateTokenOptions {
   /** Legacy usage-limit object retained for compatibility; not sent to current `/token`. */
   usageLimits?: CreateTokenUsageLimits;
-  /** Customer reference sent as `customer.merchant_customer_reference` where supported. */
+  /** Legacy customer reference retained for compatibility; current token flow uses `mobileNumber`. */
   customerReference?: string;
   /** Legacy alias used when `customerReference` is absent. */
   customerId?: string;
@@ -167,7 +234,9 @@ export interface CreateTokenOptions {
   /** Optional caller metadata retained for compatibility; not sent to current `/token`. */
   metadata?: Record<string, string>;
   /** P3P payment method sent as the token payload `type`. */
-  paymentMethod?: PaymentMethod;
+  paymentMethod: PaymentMethod;
+  /** Active mandate/pre-authorization reference, sent as `payment_method_reference_id` when provided. */
+  paymentMethodReferenceId?: string;
   /** Per-call customer key sent as `X-Customer-Key`. */
   customerKey?: string;
 }

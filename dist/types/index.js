@@ -1,8 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.P3PChallengeError = exports.P3PNetworkError = exports.P3PError = exports.P3PCustomerAuthMode = exports.PaymentMethod = exports.PaymentGateway = exports.PAYMENT_HEADER_PREFIX = exports.PAYMENT_CREDENTIAL_HEADER = void 0;
+exports.P3PChallengeError = exports.P3PNetworkError = exports.P3PError = exports.P3PCustomerAuthMode = exports.PaymentMethod = exports.PaymentGateway = exports.GRANTEX_TOKEN_HEADER = exports.PAYMENT_HEADER_PREFIX = exports.PAYMENT_CREDENTIAL_HEADER = void 0;
 exports.PAYMENT_CREDENTIAL_HEADER = "P3P-Credential";
 exports.PAYMENT_HEADER_PREFIX = "Payment ";
+exports.GRANTEX_TOKEN_HEADER = "X-Grantex-Token";
 /** Payment gateway enum retained for receipt/config context. */
 var PaymentGateway;
 (function (PaymentGateway) {
@@ -12,6 +13,9 @@ var PaymentGateway;
 var PaymentMethod;
 (function (PaymentMethod) {
     PaymentMethod["RESERVE_PAY"] = "RESERVE_PAY";
+    PaymentMethod["OTM"] = "OTM";
+    PaymentMethod["CARD"] = "CARD";
+    PaymentMethod["CREDIT_EMI"] = "CREDIT_EMI";
     PaymentMethod["Crypto"] = "CRYPTO";
 })(PaymentMethod || (exports.PaymentMethod = PaymentMethod = {}));
 /** Customer authorization mode used when the client SDK creates P3P payment tokens. */

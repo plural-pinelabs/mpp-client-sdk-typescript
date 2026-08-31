@@ -4,7 +4,7 @@ exports.requestWithRetry = requestWithRetry;
 exports.safeJson = safeJson;
 exports.normalizeHeaders = normalizeHeaders;
 const types_1 = require("../types");
-const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_TIMEOUT_MS = 45_000;
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_INITIAL_RETRY_DELAY_MS = 500;
 async function requestWithRetry(fetchImpl, url, init, config) {

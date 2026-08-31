@@ -22,14 +22,14 @@ function decodeChallenge(wwwAuthenticateHeader) {
     return challenge;
 }
 /** Build the client credential object that authorizes one server debit attempt. */
-function buildCredential(challenge, agentId, token, paymentMethod, customerReference, mobileNumber) {
+function buildCredential(challenge, agentId, token, paymentMethod, mobileNumber, paymentMethodReferenceId) {
     return {
         challenge,
         source: agentId,
         payload: {
             type: "token",
             token,
-            customer_reference: customerReference?.trim() || undefined,
+            payment_method_reference_id: paymentMethodReferenceId?.trim() || undefined,
             mobile_number: mobileNumber?.trim() || undefined,
             payment_method: paymentMethod,
         },
@@ -41,8 +41,8 @@ function encodeCredentialHeader(credential) {
         type: credential.payload.type,
         token: credential.payload.token,
     };
-    if (credential.payload.customer_reference) {
-        payload.customer_reference = credential.payload.customer_reference;
+    if (credential.payload.payment_method_reference_id) {
+        payload.payment_method_reference_id = credential.payload.payment_method_reference_id;
     }
     if (credential.payload.mobile_number) {
         payload.mobile_number = credential.payload.mobile_number;
@@ -140,8 +140,11 @@ function parsePaymentGateway(value) {
     return value === undefined || value === null ? undefined : String(value);
 }
 function parsePaymentMethod(value) {
-    if (value === types_1.PaymentMethod.RESERVE_PAY || value === types_1.PaymentMethod.Crypto) {
+    if (value === types_1.PaymentMethod.RESERVE_PAY || value === types_1.PaymentMethod.CARD || value === types_1.PaymentMethod.CREDIT_EMI || value === types_1.PaymentMethod.Crypto) {
         return value;
+    }
+    if (value === types_1.PaymentMethod.OTM) {
+        return types_1.PaymentMethod.OTM;
     }
     return String(value ?? "");
 }

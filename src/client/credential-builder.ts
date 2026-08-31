@@ -29,8 +29,8 @@ export function buildCredential(
   agentId: string,
   token: string,
   paymentMethod: PaymentMethod,
-  customerReference?: string,
   mobileNumber?: string,
+  paymentMethodReferenceId?: string,
 ): Credential {
   return {
     challenge,
@@ -38,7 +38,7 @@ export function buildCredential(
     payload: {
       type: "token",
       token,
-      customer_reference: customerReference?.trim() || undefined,
+      payment_method_reference_id: paymentMethodReferenceId?.trim() || undefined,
       mobile_number: mobileNumber?.trim() || undefined,
       payment_method: paymentMethod,
     },
@@ -51,8 +51,8 @@ export function encodeCredentialHeader(credential: Credential): string {
     type: credential.payload.type,
     token: credential.payload.token,
   };
-  if (credential.payload.customer_reference) {
-    payload.customer_reference = credential.payload.customer_reference;
+  if (credential.payload.payment_method_reference_id) {
+    payload.payment_method_reference_id = credential.payload.payment_method_reference_id;
   }
   if (credential.payload.mobile_number) {
     payload.mobile_number = credential.payload.mobile_number;
@@ -161,8 +161,11 @@ function parsePaymentGateway(value: unknown): PaymentGateway | undefined {
 }
 
 function parsePaymentMethod(value: unknown): PaymentMethod {
-  if (value === PaymentMethod.UPI_RESERVE_PAY || value === PaymentMethod.Crypto) {
+  if (value === PaymentMethod.RESERVE_PAY || value === PaymentMethod.CARD || value === PaymentMethod.CREDIT_EMI || value === PaymentMethod.Crypto) {
     return value;
+  }
+  if (value === PaymentMethod.OTM) {
+    return PaymentMethod.OTM;
   }
   return String(value ?? "") as PaymentMethod;
 }

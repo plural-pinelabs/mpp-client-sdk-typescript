@@ -7,15 +7,33 @@ export function parseToken(data: unknown): Token {
   const usage = asRecord(record.usage) ?? {};
   const limits = asRecord(record.usage_limits) ?? {};
   const paymentAmount = asRecord(record.payment_amount) ?? asRecord(record.paymentAmount);
+  const metadata = asRecord(record.metadata);
   const paymentToken = String(record.payment_token ?? record.scoped_token ?? record.token ?? record.token_id ?? "");
-  const paymentMethod = parsePaymentMethod(record.type);
+  const paymentMethod = parsePaymentMethod(record.payment_method ?? record.type);
   return {
     token_id: paymentToken,
     object: String(record.object ?? "p3p_payment_token"),
     customer_reference: String(customer?.merchant_customer_reference ?? record.merchant_customer_reference ?? record.customer_reference ?? record.customer_id ?? ""),
     customer_id: String(customer?.customer_id ?? record.customer_id ?? record.customer_reference ?? ""),
     mobile_number: stringOrUndefined(customer?.mobile_number ?? record.mobile_number),
-    mandate_id: String(record.payment_method_reference_id ?? record.authorization_id ?? record.mandate_id ?? ""),
+    mandate_id: String(
+      record.payment_method_reference_id
+      ?? record.authorization_id
+      ?? record.authorizationId
+      ?? record.mandate_id
+      ?? record.mandateId
+      ?? record.pre_authorization_id
+      ?? record.preAuthorizationId
+      ?? record.order_id
+      ?? record.orderId
+      ?? metadata?.payment_method_reference_id
+      ?? metadata?.authorization_id
+      ?? metadata?.authorizationId
+      ?? metadata?.pre_authorization_id
+      ?? metadata?.preAuthorizationId
+      ?? metadata?.external_subscription_id
+      ?? "",
+    ),
     token: paymentToken,
     payment_method: paymentMethod,
     payment_amount: paymentAmount ? {
